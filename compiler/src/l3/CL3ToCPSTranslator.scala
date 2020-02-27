@@ -10,7 +10,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       C.Halt(C.AtomL(IntLit(L3Int(0))))
     }
   }
-  private def transform(tree: S.Tree)(ctx: C.Atom =>  C.Tree) : C.Tree = {
+  private def transform(tree: S.Tree)(implicit ctx: C.Atom =>  C.Tree) : C.Tree = {
     implicit val pos = tree.pos
     tree match {
       case S.Ident(name) => ctx(C.AtomN(name))
@@ -21,6 +21,10 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         }
       }
       case S.Let(Seq(), e) => transform(e)(ctx)
+      //if-node with a primitive cond
+      //case S.If() => 
+      //if-node sugared
+      case S.If(e1, e2, e3) => transform(S.If(S.Prim(L3Eq, Seq(e1, S.Lit(BooleanLit(false)))), e3, e2))
     }
   }
 }
