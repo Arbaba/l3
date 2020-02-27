@@ -85,3 +85,7 @@ trait SyntheticTests {
 object SyntheticTests1 extends TestSuite with SyntheticTests {
   val backEnd = L3Tester.backEnd1
 }
+
+object SyntheticTests2 extends TestSuite with SyntheticTests {
+  val backEnd = L3Tester.backEnd2
+}

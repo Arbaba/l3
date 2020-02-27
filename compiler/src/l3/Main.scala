@@ -6,11 +6,16 @@ import java.nio.file.{ Files, Paths }
 import l3.SymbolicCL3TreeModule.Tree
 
 import CL3TreeFormatter._ // Implicits required for CL3 tree printing
+import CPSTreeFormatter._ // Implicits required for CPS tree printing
+import CPSTreeChecker._   // Implicits required for CPS tree checking
 
 object Main {
   def main(args: Array[String]): Unit = {
     val backEnd: Tree => TerminalPhaseResult = (
-      CL3Interpreter
+      CL3ToCPSTranslator
+        andThen treePrinter("---------- After translation to CPS")
+        andThen treeChecker
+        andThen CPSInterpreterHigh
     )
 
     val basePath = Paths.get(".").toAbsolutePath
@@ -30,6 +35,9 @@ object Main {
 
   private lazy val outPrintWriter =
     new PrintWriter(System.out, true)
+
+  private def treeChecker[T <: CPSTreeModule](implicit c: CPSTreeChecker[T]) =
+    passThrough(c)
 
   private def treePrinter[T](msg: String)(implicit f: Formatter[T]): T => T =
     passThrough { tree =>

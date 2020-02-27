@@ -44,4 +44,9 @@ object L3Tester {
   val backEnd1 = (
     CL3Interpreter
   )
+
+  val backEnd2 = (
+    CL3ToCPSTranslator
+      andThen CPSInterpreterHigh
+  )
 }

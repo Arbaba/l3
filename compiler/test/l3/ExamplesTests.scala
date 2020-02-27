@@ -49,3 +49,7 @@ trait ExamplesTests {
 object ExamplesTests1 extends TestSuite with ExamplesTests {
   val backEnd = L3Tester.backEnd1
 }
+
+object ExamplesTests2 extends TestSuite with ExamplesTests {
+  val backEnd = L3Tester.backEnd2
+}
