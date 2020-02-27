@@ -148,7 +148,10 @@
 
 (def int-print
      (fun (i)
-          #u))
+          (if (< i 0) (char-print '-'))
+          (rec loop ((i (if (<= i 0) i (- i))))
+               (if (<= i -10) (loop (/t i 10)))
+               (char-print (int->char-digit (- (%t i 10)))))))
 
 (def int->char
      (fun (i)

@@ -206,17 +206,32 @@ object L3Parser {
   }
 
   private def sFun(args: Seq[String], body: Tree)
-                  (implicit p: Position): Tree = ???
+                  (implicit p: Position): Tree = {
+    val fName = freshName("fun")
+    LetRec(Seq(Fun(fName, args, body)), Ident(fName))
+  }
   private def sLet_*(bdgs: Seq[(String,Tree)], body: Tree)
-                    (implicit p: Position): Tree = ???
-  private def sBegin(exprs: Seq[Tree])(implicit p: Position): Tree = ???
+                    (implicit p: Position): Tree =
+    bdgs.foldRight(body)((b, t) => Let(Seq(b), t))
+  private def sBegin(exprs: Seq[Tree])(implicit p: Position): Tree =
+    exprs reduceRight { (e1, e2) => Let(Seq((freshName("begin"), e1)), e2) }
   private def sRec(name: String, bdgs: Seq[(String, Tree)], body: Tree)
-                  (implicit p: Position) = ???
-  private def sAnd(es: Seq[Tree])(implicit p: Position): Tree = ???
-  private def sOr(es: Seq[Tree])(implicit p: Position): Tree = ???
-  private def sNot(e: Tree)(implicit p: Position): Tree = ???
+                  (implicit p: Position) =
+    LetRec(Seq(Fun(name, bdgs map { _._1 }, body)),
+           App(Ident(name), bdgs map { _._2 }))
+  private def sAnd(es: Seq[Tree])(implicit p: Position): Tree =
+    es reduceRight { If(_, _, Lit(BooleanLit(false))) }
+  private def sOr(es: Seq[Tree])(implicit p: Position): Tree = {
+    es reduceRight { (e, r) =>
+      val en = freshName("or")
+      Let(Seq((en, e)), If(Ident(en), Ident(en), r))
+    }
+  }
+  private def sNot(e: Tree)(implicit p: Position): Tree =
+    If(e, Lit(BooleanLit(false)), Lit(BooleanLit(true)))
   private def sCond(clses: Seq[(Tree, Seq[Tree])])(implicit p: Position): Tree =
-    ???
+    clses.foldRight(Lit(UnitLit) : Tree){ case ((c, t), e) =>
+      If(c, sBegin(t), e) }
   private def sStringLit(s: String)(implicit p: Position): Tree = {
     val b = freshName("string")
     val cs = codePoints(s)
