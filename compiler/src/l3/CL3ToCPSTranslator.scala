@@ -13,6 +13,18 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   private def transform(tree: S.Tree)(implicit ctx: C.Atom =>  C.Tree) : C.Tree = {
     implicit val pos = tree.pos
     tree match {
+      //f(name, args, body)
+      //case S.LetRec(f, e) => C.LetF(, transform(e))
+      case S.App(e, args) => transform(e) { v: C.Atom =>
+        val c = Symbol.fresh("c")
+        val r = Symbol.fresh("r")
+        val z: C.Tree = C.LetC(Seq(C.Cnt(c, Seq(r), ctx(C.AtomN(r)))), C.AppF(v, c, Seq()))
+        args.foldRight(z){
+          case (symbolic, C.LetC(x, C.AppF(v, c, seq))) => transform(symbolic) {
+            v1: C.Atom => C.LetC(x, C.AppF(v, c, Seq(v1) ++ seq)) 
+          }
+        }
+      }
       case S.Ident(name) => ctx(C.AtomN(name))
       case S.Lit(v) => ctx(C.AtomL(v))
       case S.Let(Seq((n1, e1), otherArgs @ _*), e) => {
