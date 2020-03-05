@@ -15,6 +15,9 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     tree match {
       //f(name, args, body)
       //case S.LetRec(f, e) => C.LetF(, transform(e))
+      case p: S.Prim => transform{
+        S.If(p, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(true)))
+      }(ctx)
       case S.Prim(prim: L3ValuePrimitive, args) => {
         val primEval = Symbol.fresh("v")
         val id = Symbol.fresh("id")
@@ -37,6 +40,12 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           }
         }
       }
+      case S.LetRec(funs, body ) => 
+        val c = Symbol.fresh("c")
+      
+        val fs  = funs.map(f => C.Fun(f.name, c, f.args, transform(f.body){v: C.Atom => C.AppC(c, Seq(v))})) 
+      
+        C.LetF(fs, transform(body){v: C.Atom => C.AppC(c, Seq(v))})
       case S.App(e, args) => transform(e) { v: C.Atom =>
         val c = Symbol.fresh("c")
         val r = Symbol.fresh("r")
@@ -57,6 +66,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       case S.Let(Seq(), e) => transform(e)
       //if-node with a primitive cond
       //L3TestPrimitive
+      
       case S.If(S.Prim(p: L3TestPrimitive, Seq(e1)), e2, e3) => {
         val r = Symbol.fresh("r")
         val c = Symbol.fresh("c")
@@ -84,5 +94,6 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       //halt(e) => halt()
       case S.Halt(e) => transform(e){v: C.Atom => C.Halt(v)}
     }
+
   }
 }
