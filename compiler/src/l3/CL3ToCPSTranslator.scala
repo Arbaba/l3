@@ -15,6 +15,28 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     tree match {
       //f(name, args, body)
       //case S.LetRec(f, e) => C.LetF(, transform(e))
+      case S.Prim(prim: L3ValuePrimitive, args) => {
+        val primEval = Symbol.fresh("v")
+        val id = Symbol.fresh("id")
+        val idRet = Symbol.fresh("id")
+        val arg = Symbol.fresh("a")
+        val identity = C.Fun(id, idRet, Seq(arg), C.AppF(C.AtomN(id), idRet, Seq(C.AtomN(arg))))
+        val c = Symbol.fresh("c")
+        val r = Symbol.fresh("r")
+        val app: C.Tree = C.LetC(Seq(C.Cnt(c, Seq(r), ctx(C.AtomN(r)))), C.AppF(C.AtomN(id), c, Seq(C.AtomN(primEval))))
+        val retFunc = C.LetF(Seq(identity), app)
+        val z: C.Tree = C.LetP(primEval, prim, Seq(), retFunc)
+        /*args.foldRight(z){
+          case ()
+        }*/
+        args.foldRight(z){
+          case (symbolicArg, C.LetP(primEval, prim, transformedArgs, retFunc)) => {
+            transform(symbolicArg){ v1: C.Atom => 
+              C.LetP(primEval, prim, Seq(v1) ++ transformedArgs, retFunc)
+            }
+          }
+        }
+      }
       case S.App(e, args) => transform(e) { v: C.Atom =>
         val c = Symbol.fresh("c")
         val r = Symbol.fresh("r")
