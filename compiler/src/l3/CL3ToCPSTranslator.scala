@@ -5,8 +5,10 @@ import l3.{ SymbolicCPSTreeModule => C }
 
 object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   def apply(tree: S.Tree): C.Tree = {
-    
+    println(tree)
     transform(tree){ v : C.Atom => 
+      println("Atom after translation ")
+      println(v)
       C.Halt(C.AtomL(IntLit(L3Int(0))))
     }
   }
@@ -15,17 +17,14 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     tree match {
       //f(name, args, body)
       //case S.LetRec(f, e) => C.LetF(, transform(e))
-      case p: S.Prim => transform{
-        S.If(p, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(true)))
-      }(ctx)
       case S.Prim(prim: L3ValuePrimitive, args) => {
-        val primEval = Symbol.fresh("v")
-        val id = Symbol.fresh("id")
-        val idRet = Symbol.fresh("id")
-        val arg = Symbol.fresh("a")
+        val primEval = Symbol.fresh("v_valPrim")
+        val id = Symbol.fresh("id_valPrim")
+        val idRet = Symbol.fresh("idRet_valPrim")
+        val arg = Symbol.fresh("a_valPrim")
         val identity = C.Fun(id, idRet, Seq(arg), C.AppF(C.AtomN(id), idRet, Seq(C.AtomN(arg))))
-        val c = Symbol.fresh("c")
-        val r = Symbol.fresh("r")
+        val c = Symbol.fresh("c_valPrim")
+        val r = Symbol.fresh("r_valPrim")
         val app: C.Tree = C.LetC(Seq(C.Cnt(c, Seq(r), ctx(C.AtomN(r)))), C.AppF(C.AtomN(id), c, Seq(C.AtomN(primEval))))
         val retFunc = C.LetF(Seq(identity), app)
         val z: C.Tree = C.LetP(primEval, prim, Seq(), retFunc)
@@ -36,40 +35,55 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           case (symbolicArg, C.LetP(primEval, prim, transformedArgs, retFunc)) => {
             transform(symbolicArg){ v1: C.Atom => 
               C.LetP(primEval, prim, Seq(v1) ++ transformedArgs, retFunc)
+              //C.LetP(primEval, prim, Seq(v1) ++ transformedArgs, ctx(C.AtomN(primEval)))
             }
           }
         }
       }
+      case prim@S.Prim(p: L3TestPrimitive, args) =>
+            C.Halt(C.AtomL(IntLit(L3Int(1))))
+
+      transform{
+        S.If(prim, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(true)))
+      }(ctx)
       case S.LetRec(funs, body ) => 
-        val c = Symbol.fresh("c")
-      
-        val fs  = funs.map(f => C.Fun(f.name, c, f.args, transform(f.body){v: C.Atom => C.AppC(c, Seq(v))})) 
-      
-        C.LetF(fs, transform(body){v: C.Atom => C.AppC(c, Seq(v))})
+  /*      val id_arg = Symbol.fresh("cntArg_LetRec")
+        val identity_cnt = C.Cnt(c,Seq(id_arg), transform(S.Ident(id_arg)){v:C.Atom => (C.Halt(v))})*/
+        val fs  = funs.map(f => {
+          val c = Symbol.fresh("c_LetRec")
+          C.Fun(f.name, c, f.args, transform(f.body){v: C.Atom => C.AppC(c, Seq(v))})
+        })
+        C.LetF(fs, transform(body)(ctx))
       case S.App(e, args) => transform(e) { v: C.Atom =>
-        val c = Symbol.fresh("c")
-        val r = Symbol.fresh("r")
+        val c = Symbol.fresh("c_App")
+        val r = Symbol.fresh("r_App")
         val z: C.Tree = C.LetC(Seq(C.Cnt(c, Seq(r), ctx(C.AtomN(r)))), C.AppF(v, c, Seq()))
         args.foldRight(z){
           case (symbolic, C.LetC(x, C.AppF(v, c, seq))) => transform(symbolic) {
             v1: C.Atom => C.LetC(x, C.AppF(v, c, Seq(v1) ++ seq)) 
           }
         }
-      }
+      }    
       case S.Ident(name) => ctx(C.AtomN(name))
       case S.Lit(v) => ctx(C.AtomL(v))
+
       case S.Let(Seq((n1, e1), otherArgs @ _*), e) => {
+                    println("debug let 1")
+
+      
         transform(e1){ v1: C.Atom =>
           C.LetP(n1, L3Id, Seq(v1), transform(S.Let(otherArgs, e))(ctx))
         }
       }
-      case S.Let(Seq(), e) => transform(e)
+      case S.Let(Seq(), e) => 
+      println("debug let 2")
+      transform(e)
       //if-node with a primitive cond
       //L3TestPrimitive
       
       case S.If(S.Prim(p: L3TestPrimitive, Seq(e1)), e2, e3) => {
-        val r = Symbol.fresh("r")
-        val c = Symbol.fresh("c")
+        val r = Symbol.fresh("r_If")
+        val c = Symbol.fresh("c_If")
         val ct = Symbol.fresh("ct")
         val cf = Symbol.fresh("cf")
         C.LetC(
