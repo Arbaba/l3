@@ -26,7 +26,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       }
       case prim@S.Prim(p: L3TestPrimitive, args) =>
         transform{
-          S.If(prim, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(true)))
+          S.If(prim, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(false)))
         }(ctx)
       case S.LetRec(funs, body ) => 
         val fs  = funs.map(f => {
