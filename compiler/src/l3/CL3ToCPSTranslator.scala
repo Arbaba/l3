@@ -15,31 +15,18 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   var cnt = 0
   private def transform(tree: S.Tree)(implicit ctx: C.Atom =>  C.Tree) : C.Tree = {
     implicit val pos = tree.pos
-    //println(tree.toString.toCharArray.take(100).mkString(""))
     tree match {
-      //f(name, args, body)
-      //case S.LetRec(f, e) => C.LetF(, transform(e))
-
-      /*case S.Prim(p: L3TestPrimitive, args) => {
-        println("transforming logiaal primitive")
-        transform{
-        S.If(S.Prim(p, args), S.Lit(BooleanLit(true)), S.Lit(BooleanLit(true)))
-      }(ctx)
-      }*/
-      case S.Prim(prim: L3ValuePrimitive, args) => {
-        val stub = C.Halt(C.AtomL(IntLit(L3Int(0))))
-        val ret = Symbol.fresh("val_prim")
-        val struct: C.Tree = C.LetP(ret, prim, Seq(), stub)
-        val resWithStubBody = args.foldRight(struct){
-          case (arg: S.Tree, C.LetP(name, prim, atoms, body)) => transform(arg){ v: C.Atom =>
-            C.LetP(name, prim, Seq(v)++atoms, body)
-          }
-        }
-        resWithStubBody match {
-          case C.LetP(name, prim, vs, _) => C.LetP(name, prim, vs, ctx(C.AtomN(name)))
-        }
+      case S.Prim(prim: L3ValuePrimitive, args) if args.collect{
+        case id: S.Ident => id
+      }.size == args.size => {
+        val res = Symbol.fresh("primRes")
+        C.LetP(res, prim, args.map{ case S.Ident(arg) => C.AtomN(arg) }, ctx(C.AtomN(res)))
       }
-      
+      case S.Prim(prim: L3ValuePrimitive, args: Seq[S.Tree]) => {
+        val argNames = 0.until(args.size).map{i: Int => Symbol.fresh(s"a$i")}
+        transform(S.Let(argNames.zip(args), S.Prim(prim, argNames.map{argName: S.Name => S.Ident(argName)})))
+
+      }
       
 
       case prim@S.Prim(p: L3TestPrimitive, args) =>
@@ -47,10 +34,6 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           S.If(prim, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(true)))
         }(ctx)
       case S.LetRec(funs, body ) => 
-  /*      val id_arg = Symbol.fresh("cntArg_LetRec")
-        val identity_cnt = C.Cnt(c,Seq(id_arg), transform(S.Ident(id_arg)){v:C.Atom => (C.Halt(v))})*/
-        println("transforming letrec")
-
         val fs  = funs.map(f => {
           val c = Symbol.fresh("c_LetRec")
           C.Fun(f.name, c, f.args, transform(f.body){v: C.Atom => C.AppC(c, Seq(v))})
@@ -67,11 +50,17 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           case (symbolic, C.LetC(x, C.AppF(v, c, seq))) => transform(symbolic) {
             v1: C.Atom => C.LetC(x, C.AppF(v, c, Seq(v1) ++ seq)) 
           }
+          case _ => throw new Exception("problem with application folding")
         }
       }
       }
       case S.Ident(name) => ctx(C.AtomN(name))
-      case S.Lit(v) => ctx(C.AtomL(v))
+      case S.Lit(v) => {
+        println("literal matching")
+        val res = ctx(C.AtomL(v))
+        println("literal matched")
+        res
+      }
 
       case S.Let(Seq((n1, e1), otherArgs @ _*), e) => {
         println("transforming let1")
@@ -86,7 +75,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       //L3TestPrimitive
       
       case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
-        println("transforming logical if")
+        println(s"transforming logical if (then::$e2) (else::$e3)")
         val r = Symbol.fresh("r_If")
         val c = Symbol.fresh("c_If")
         val ct = Symbol.fresh("ct")
@@ -110,12 +99,11 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       //
       case S.If(e1, e2, e3) => {
         println(s"Transforming if $tree")
-        //cnt += 1
-        //if(cnt > 3) throw new Exception("stack overflow")
         transform(S.If(S.Prim(L3Eq, Seq(e1, S.Lit(BooleanLit(false)))), e3, e2))
       }
       //halt(e) => halt()
       case S.Halt(e) => transform(e){v: C.Atom => C.Halt(v)}
+      case _ => throw new Exception("unhandled case")
     }
 
   }
