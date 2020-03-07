@@ -9,12 +9,13 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     transform(tree){ v : C.Atom => 
       println("Atom after translation ")
       println(v)
-      C.Halt(C.AtomL(IntLit(L3Int(0))))
+      C.Halt(C.AtomL(IntLit(L3Int(1))))
     }
   }
   var cnt = 0
   private def transform(tree: S.Tree)(implicit ctx: C.Atom =>  C.Tree) : C.Tree = {
     implicit val pos = tree.pos
+    val stub = C.Halt(C.AtomL(IntLit(L3Int(0))))
     tree match {
       case S.Prim(prim: L3ValuePrimitive, args) if args.collect{
         case id: S.Ident => id
@@ -25,7 +26,6 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       case S.Prim(prim: L3ValuePrimitive, args: Seq[S.Tree]) => {
         val argNames = 0.until(args.size).map{i: Int => Symbol.fresh(s"a$i")}
         transform(S.Let(argNames.zip(args), S.Prim(prim, argNames.map{argName: S.Name => S.Ident(argName)})))
-
       }
       
 
@@ -73,9 +73,10 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       transform(e)
       //if-node with a primitive cond
       //L3TestPrimitive
-      
-      case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
-        println(s"transforming logical if (then::$e2) (else::$e3)")
+      case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) if e.collect{
+        case S.Ident(name) => name 
+      }.size == e.size => {
+        println(s"transforming logical if (cond::$e) (then::$e2) (else::$e3)")
         val r = Symbol.fresh("r_If")
         val c = Symbol.fresh("c_If")
         val ct = Symbol.fresh("ct")
@@ -83,17 +84,20 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         val e1 = e(0)
         transform(e2){ v2: C.Atom => 
           transform(e3){ v3: C.Atom => 
-            val condCnt = C.Cnt(c, Seq(r), ctx(C.AtomN(r)))
+            val plugin = C.Cnt(c, Seq(r), ctx(C.AtomN(r)))
             val thenCnt = C.Cnt(ct, Seq(), C.AppC(c, Seq(v2)))
             val elseCnt = C.Cnt(cf, Seq(), C.AppC(c, Seq(v3)))
-            C.LetC(Seq(condCnt), 
+            C.LetC(Seq(plugin), 
               C.LetC(Seq(thenCnt), 
                 C.LetC(Seq(elseCnt), 
-                  transform(e1){v1: C.Atom => 
-                    C.If(p, Seq(v1), ct, cf)
-                  })))
+                    C.If(p, e.map{case S.Ident(name) => C.AtomN(name)}, ct, cf)
+                  )))
           }
         }
+      }
+      case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
+        val freshNames = 0.until(e.size).map{i: Int => Symbol.fresh(s"e$i")}
+        transform(S.Let(freshNames.zip(e), S.If(S.Prim(p, freshNames.map{case s: S.Name => S.Ident(s)}), e2, e3)))
       }
       //if-node sugared
       //
