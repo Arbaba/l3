@@ -27,60 +27,28 @@ sealed abstract class CPSInterpreter[M <: CPSTreeModule](
 
   protected type Env = PartialFunction[Name, Value]
   protected val emptyEnv: Env = Map.empty
-  
-  var cnt = 0 
+
   @tailrec
   private def eval(tree: Tree, env: Env): Int = {
-    //cnt += 1 
-
     def resolve(a: Atom): Value = a match {
       case AtomN(n) => env(n)
       case AtomL(l) => evalLit(l)
     }
-    
-    log(tree)
-    val printer = if (cnt > 1000 ) {
-      x:String => //println(x)
-    } else {
-      x:String => 
-    }
-    cnt += 1
-    def argsmap(args : Seq[Atom], env: Env)= args.map{
-           case AtomN(n) => env(n)
-           case AtomL(v) => v
-          }.mkString(" ")
-    println(cnt)
-    (tree: @unchecked) match {
-      case x@LetP(name, prim, args, body) =>
-        //        println("P")
-        //println(body)
-        prim match {
-          case _=> 
-              //println(s"${name} ${prim} ${argsmap(args, env)}")
-              ////println(argsmap(args, env))
-        }
 
-        
+    log(tree)
+
+    (tree: @unchecked) match {
+      case LetP(name, prim, args, body) =>
         eval(body, Map(name->evalValuePrim(prim, args map resolve)) orElse env)
 
       case LetC(cnts, body) =>
-  
-      //println("C")
-      //println(body)
         val recEnv = MutableMap[Name, Value]()
         val env1 = recEnv orElse env
-        println("start")
-        for (Cnt(name, args, body) <- cnts){
+        for (Cnt(name, args, body) <- cnts)
           recEnv(name) = CntV(args, body, env1)
-          println(body)
-          //println(args.mkString(" "))
-        }
-        println("done")
         eval(body, env1)
 
       case LetF(funs, body) =>
-      //println("F")
-        println(body)
         val recEnv = MutableMap[Name, Value]()
         val env1 = recEnv orElse env
         for (Fun(name, retC, args, body) <- funs)
@@ -88,44 +56,23 @@ sealed abstract class CPSInterpreter[M <: CPSTreeModule](
         eval(body, env1)
 
       case AppC(cnt, args) =>
-      //println("App C")
         val CntV(cArgs, cBody, cEnv) = env(cnt)
         assume(cArgs.length == args.length)
-        
         eval(cBody, (cArgs zip (args map resolve)).toMap orElse cEnv)
 
       case AppF(fun, retC, args) =>
-      
-          //cnt += 1 
-          if (cnt > 7  ){
-            //println(tree)
-            //throw new Exception()
-          }
-         //println(tree)
-         //println(args.map{
-         //  case AtomN(n) => env(n)
-         //  case AtomL(v) => v
-         // }.mkString(" "))
-          //throw new Exception("")
-
-      
-      //println("app F " + retC)
         val FunV(fRetC, fArgs, fBody, fEnv) = unwrapFunV(resolve(fun))
-        ////println(fBody)
-
         assume(fArgs.length == args.length)
         val rArgs = args map resolve
         val env1 = ((fRetC +: fArgs) zip (env(retC) +: rArgs)).toMap orElse fEnv
         eval(fBody, env1)
 
       case If(cond, args, thenC, elseC) =>
-        //println("IF")
         val cnt = if (evalTestPrim(cond, args map resolve)) thenC else elseC
         val cntV = env(cnt).asInstanceOf[CntV]
         eval(cntV.body, cntV.env)
 
       case Halt(name) =>
-      printer("halt")
         extractInt(resolve(name))
     }
   }
@@ -195,8 +142,7 @@ object CPSInterpreterHigh extends CPSInterpreter(SymbolicCPSTreeModule)
       case (L3Id, Seq(v)) => v
     }
 
-  protected def evalTestPrim(p: TestPrimitive, args: Seq[Value]): Boolean ={
-    println("test")
+  protected def evalTestPrim(p: TestPrimitive, args: Seq[Value]): Boolean =
     (p, args) match {
       case (L3BlockP, Seq(BlockV(_, _))) => true
       case (L3BlockP, Seq(_)) => false
@@ -217,5 +163,4 @@ object CPSInterpreterHigh extends CPSInterpreter(SymbolicCPSTreeModule)
 
       case (L3Eq, Seq(v1, v2)) => v1 == v2
     }
-  }
 }
