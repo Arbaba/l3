@@ -5,10 +5,7 @@ import l3.{ SymbolicCPSTreeModule => C }
 
 object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   def apply(tree: S.Tree): C.Tree = {
-    println(tree)
     transform(tree){ v : C.Atom => 
-      println("Atom after translation ")
-      println(v)
       C.Halt(C.AtomL(IntLit(L3Int(0))))
     }
   }
@@ -75,7 +72,6 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       case S.Lit(v) => ctx(C.AtomL(v))
 
       case S.Let(Seq((n1, e1), otherArgs @ _*), e) => {
-        println("transforming let1")
         transform(e1){ v1: C.Atom =>
           C.LetP(n1, L3Id, Seq(v1), transform(S.Let(otherArgs, e))(ctx))
         }
@@ -123,7 +119,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       }
       //halt(e) => halt()
       case S.Halt(e) => transform(e){v: C.Atom => C.Halt(v)}
+      case _ => throw new Exception("unhandled case")
     }
-
   }
 }
