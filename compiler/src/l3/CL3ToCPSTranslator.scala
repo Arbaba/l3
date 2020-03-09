@@ -60,7 +60,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           C.LetC(Seq(cnt),body)
 
         }}
-        atomStacker(args, nil)(context)  
+        atomStacker(args.reverse, nil)(context)  
      
      
  
@@ -116,7 +116,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           C.LetP(r,p, atoms, ctx(C.AtomN(r)))
       
         }}
-        atomStacker(args, nil)(context)  
+        atomStacker(args.reverse, nil)(context)  
       
       //halt(e) => halt()
       case S.Halt(e) => transform(e){v: C.Atom => C.Halt(v)}
