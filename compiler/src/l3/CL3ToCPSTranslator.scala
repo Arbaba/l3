@@ -69,7 +69,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
         val nil: Seq[C.Atom] = Seq()
      
-        atomStacker(e, nil){atoms: Seq[C.Atom] => 
+        atomStacker(e.reverse, nil){atoms: Seq[C.Atom] => 
           val r = Symbol.fresh("r_If")
           val c = Symbol.fresh("c_If")
           val ct = Symbol.fresh("ct")
