@@ -5,7 +5,7 @@
 (@byte-write 66)
 
 (letrec ((fact (fun (x) (if (@= 0 x) 1 (@* x (fact (@- x 1)))))))
-  (@byte-write (fact 5)))
+  (@byte-write (@- (fact 5) 55)))
 (letrec ((even? (fun (x) (if (@= x 0) #t (odd?  (@- x 1)))))
          (odd?  (fun (x) (if (@= x 0) #f (even? (@- x 1))))))
   (if (even? 66)
