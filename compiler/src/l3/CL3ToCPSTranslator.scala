@@ -20,13 +20,28 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         }
       }
   }
-  private def tail(t: S.Tree, c: Symbol): C.Tree = t match {
-    case _ => stub//case S.If()
+  private def bool(v: Boolean): C.Tree = C.AtomL(BooleanLit(v))
+  /**
+    translation of the form λv (appc c v)
+    It gets as argument the name of the continuation c 
+    to which the value of expression should be applied. 
+  */
+  private def tail(t: S.Tree, c: Symbol): C.Tree = nonTail(t){v: C.Atom => C.AppC(c, Seq(v))}
+
+  /*
+  ct cf are continuation names
+  */
+  private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = t match {
+    case S.If(e1, bool(false), bool(true)) => cond(tail(e1), cf, ct)
+    case S.If(e1, e2, S.Lit(BooleanLit(false))) => {
+      val ac = Symbol fresh "ac"
+      C.LetC(Seq(C.Cnt(ac, Seq(), cond(e2, ct, cf))), 
+        cond(e1, ac, cf)
+      )
+    }
+    case _ => throw new Exception("Unexpected conditional")
   }
 
-  private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = {
-    stub
-  }
   private def nonTail(t: S.Tree)(ctx: C.Atom => C.Tree): C.Tree = {
     implicit val pos = t.pos
     t match {
