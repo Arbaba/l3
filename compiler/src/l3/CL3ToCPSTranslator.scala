@@ -11,7 +11,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     }
   }
   var cnt = 0
-
+  val nilAtoms :Seq[C.Atom] = Seq()
   private def atomStacker(trees: Seq[S.Tree], acc: Seq[C.Atom])( ctx: Seq[C.Atom] => C.Tree): C.Tree = trees match {
     case Seq() => ctx(acc.reverse)
     case Seq(head, others@_*) => 
@@ -20,25 +20,34 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         }
       }
   }
-  private def bool(v: Boolean): C.Tree = C.AtomL(BooleanLit(v))
+  private def bool(v: Boolean): C.Atom = C.AtomL(BooleanLit(v))
   /**
     translation of the form λv (appc c v)
     It gets as argument the name of the continuation c 
     to which the value of expression should be applied. 
   */
-  private def tail(t: S.Tree, c: Symbol): C.Tree = nonTail(t){v: C.Atom => C.AppC(c, Seq(v))}
+  private def tail(t: S.Tree, c: Symbol): C.Tree = t match  {
+    case S.Ident(n) => 
+        C.AppC(c, Seq(C.AtomN(n)))
+    case S.Lit(v) => 
+        C.AppC(c, Seq(C.AtomL(v)))
+    case S.App(e, args) => 
+        atomStacker(args, nilAtoms){atoms: Seq[C.Atom] => nonTail(e){f => C.AppF(f, c, atoms)}}
+    case _ => nonTail(t){v: C.Atom => C.AppC(c, Seq(v))}
+
+  } 
 
   /*
   ct cf are continuation names
   */
   private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = t match {
-    case S.If(e1, bool(false), bool(true)) => cond(tail(e1), cf, ct)
+    /*case S.If(e1, bool(false), bool(true)) => cond(tail(e1), cf, ct)
     case S.If(e1, e2, S.Lit(BooleanLit(false))) => {
       val ac = Symbol fresh "ac"
       C.LetC(Seq(C.Cnt(ac, Seq(), cond(e2, ct, cf))), 
         cond(e1, ac, cf)
       )
-    }
+    }*/
     case _ => throw new Exception("Unexpected conditional")
   }
 
