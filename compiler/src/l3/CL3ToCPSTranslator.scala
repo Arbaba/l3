@@ -6,7 +6,6 @@ import l3.{ SymbolicCPSTreeModule => C }
 object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   val stub = C.Halt(C.AtomL(IntLit(L3Int(0))))
   def apply(tree: S.Tree): C.Tree = {
-    //println(tree)
     transform(tree){ v : C.Atom => 
       C.Halt(C.AtomL(IntLit(L3Int(0))))
     }
@@ -14,7 +13,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   var cnt = 0
 
   private def atomStacker(trees: Seq[S.Tree], acc: Seq[C.Atom])( ctx: Seq[C.Atom] => C.Tree): C.Tree = trees match {
-    case Seq() => ctx(acc)
+    case Seq() => ctx(acc.reverse)
     case Seq(head, others@_*) => 
       transform(head){v: C.Atom => {
           atomStacker(others, v +: acc)(ctx)
@@ -44,7 +43,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         val context = {atoms: Seq[C.Atom] => {
           C.LetP(r,p, atoms, ctx(C.AtomN(r)))
         }}
-        atomStacker(args.reverse, nil)(context)  
+        atomStacker(args, nil)(context)  
       case S.LetRec(funs, body) => 
         val fs  = funs.map(f => {
           val c = Symbol.fresh("c_LetRec")
@@ -75,7 +74,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         C.LetC(Seq(plugin),             
           C.LetC(Seq(thenCnt),
             C.LetC(Seq(elseCnt), 
-              atomStacker(e.reverse, nil){atoms: Seq[C.Atom] => 
+              atomStacker(e, nil){atoms: Seq[C.Atom] => 
                     C.If(p, atoms, ct, cf)
               })))
       }
@@ -94,7 +93,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
             C.LetC(Seq(cnt),body)
           }
         }
-        atomStacker(args.reverse, nil)(context)  
+        atomStacker(args, nil)(context)  
       case _ => throw new Exception("Unhandled AST node")
     }
   }
