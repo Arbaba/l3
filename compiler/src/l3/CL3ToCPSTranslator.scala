@@ -12,7 +12,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   var cnt = 0
 
   private def atomStacker(trees: Seq[S.Tree], acc: Seq[C.Atom])( ctx: Seq[C.Atom] => C.Tree): C.Tree = trees match {
-    case Seq() => ctx(acc)
+    case Seq() => ctx(acc.reverse)
     case Seq(head, tail@_*) => 
       transform(head){v: C.Atom => {
           atomStacker(tail, v +: acc)(ctx)
@@ -54,7 +54,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
 
         C.LetF(fs, transform(body)(ctx))
 
-      
+        
       case S.App(e, args) => 
 
         val nil :Seq[C.Atom] = Seq()
@@ -63,7 +63,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         val cnt = C.Cnt(c, Seq(r), ctx(C.AtomN(r)))
         val context = {atoms: Seq[C.Atom] => {
           val body = transform(e){v: C.Atom => 
-          C.AppF(v, c, atoms.reverse)
+          C.AppF(v, c, atoms)
             
          }
           C.LetC(Seq(cnt),body)
@@ -90,7 +90,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           C.LetC(Seq(plugin),             
             C.LetC(Seq(thenCnt),
               C.LetC(Seq(elseCnt), 
-                atomStacker(e.reverse, nil){atoms: Seq[C.Atom] => 
+                atomStacker(e, nil){atoms: Seq[C.Atom] => 
                       C.If(p, atoms, ct, cf)
                 })))
       }
@@ -110,7 +110,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
           C.LetP(r,p, atoms, ctx(C.AtomN(r)))
         }}
 
-        atomStacker(args.reverse, nil)(context)  
+        atomStacker(args, nil)(context)  
       
       case S.Halt(e) => transform(e){v: C.Atom => C.Halt(v)}
       case _ => throw new Exception("unhandled case")

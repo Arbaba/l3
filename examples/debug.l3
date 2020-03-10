@@ -7,11 +7,27 @@
 ;)
 ;(if #t #t #f)
 
+
 (letrec (( f1 (fun (x)
             (let*  ((a  1)
                     (b  2)
                     )
-                    (if (@= b x) x (f1(@+ x 1)))
+                    (if #t x (f1 1))
             ))))
             (f1 0)
 )
+;enerated code:
+;let* ((f1
+;       (fun (c_LetRec x)
+;         (let* ((a (@id 1))
+;                (b (@id 2))
+;                (primRes (@+ x 1))
+;                (c_App
+;                 (cnt (r_App)
+;                   (let* ((c_If (cnt (r_If) (c_LetRec r_If)))
+;                          (ct (cnt () (c_If x)))
+;                          (cf (cnt () (c_If r_App))))
+;                     (if (@= b x) ct cf)))))
+;           (f1 c_App primRes))))
+;      (c_App_1 (cnt (r_App_1) (halt 0))))
+; (f1 c_App_1 0))
