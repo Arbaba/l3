@@ -104,8 +104,15 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
       case S.If(e1, e2, e3) => nonTail(e1){v: C.Atom => 
         C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(false))), cf, ct)
       }
-      case arbitrary => nonTail(arbitrary){v: C.Atom => 
-        C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(true))), ct, cf )
+      case prim@S.Prim(p: L3TestPrimitive, args) =>
+        atomStacker(args, nilAtoms){ atoms: Seq[C.Atom] => 
+          C.If(p, atoms, ct, cf)
+        }
+      case arbitrary => {
+        //println("arbitrary")
+        nonTail(arbitrary){v: C.Atom => 
+        C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(true))), ct, cf)
+      }
       }
       case _ => throw new Exception(s"$t ($cf, $ct)")
     }
@@ -143,7 +150,7 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
       }
       case S.Let(Seq(), e) => 
         nonTail(e)(ctx)
-      case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
+      /*case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
         val nil: Seq[C.Atom] = Seq()
     
         val r = Symbol.fresh("r_If")
@@ -162,6 +169,24 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
                     C.If(p, atoms, ct, cf)
               })))
               /**/
+      }*/
+      case S.If(e1@S.Prim(p: L3TestPrimitive, _), e2, e3) => {
+        val nil: Seq[C.Atom] = Seq()
+    
+        val r = Symbol.fresh("r_If")
+        val c = Symbol.fresh("c_If")
+        val ct = Symbol.fresh("ct")
+        val cf = Symbol.fresh("cf")
+  
+        val plugin = C.Cnt(c, Seq(r), ctx(C.AtomN(r)))
+        val thenCnt = C.Cnt(ct, Seq(), tail(e2, c)) // { v2: C.Atom =>C.AppC(c, Seq(v2))}
+        val elseCnt = C.Cnt(cf, Seq(),tail(e3, c)) // { v3: C.Atom =>C.AppC(c, Seq(v3))}
+
+        C.LetC(Seq(plugin),             
+          C.LetC(Seq(thenCnt),
+            C.LetC(Seq(elseCnt), 
+              cond(e1, ct, cf)
+              )))
       }
       case S.If(e1, e2, e3) => {
         nonTail(S.If(S.Prim(L3Eq, Seq(e1, S.Lit(BooleanLit(false)))), e3, e2))(ctx)
