@@ -81,6 +81,7 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
       case S.Lit(BooleanLit(v)) => 
         C.AppC(if(v == true) ct else cf, 
           Seq())
+      case S.Lit(_) => C.AppC(ct, Seq())
       case name: S.Ident => 
         cond(S.Prim(L3Eq, Seq(name, fal)), cf, ct)
       case S.Let(Seq(), bod) => 
