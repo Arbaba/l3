@@ -95,12 +95,13 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
         else cond(e1, cf, ct)
       case S.If(e1, e2, S.Lit(BooleanLit(v3))) => 
         val ac = Symbol fresh "ac"
-        val cnt = C.Cnt(ac, Seq(), cond(e2, ct, cf))
-        C.LetC(Seq(cnt), cond(e1, ac, cf))
+        val (ct_, cf_ ) = if(v3) (ct, cf) else (cf, ct)
+        val cnt = C.Cnt(ac, Seq(), cond(e2, ct_, cf_))
+        C.LetC(Seq(cnt), cond(e1, ac, ct_))
       case S.If(e1, e2@S.Lit(BooleanLit(_)), e3) => 
         cond(S.If(e1, e3, e2), cf, ct)
       case S.If(e1, e2, e3) => nonTail(e1){v: C.Atom => 
-        C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(false))), ct, cf)
+        C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(false))), cf, ct)
       }
       case arbitrary => nonTail(arbitrary){v: C.Atom => 
         C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(true))), ct, cf )
