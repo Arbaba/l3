@@ -26,14 +26,48 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     It gets as argument the name of the continuation c 
     to which the value of expression should be applied. 
   */
-  private def tail(t: S.Tree, c: Symbol): C.Tree = t match  {
+  private def tail(t: S.Tree, c: Symbol): C.Tree = {
+    implicit val pos = t.pos
+
+    t match  {
+
     case S.Ident(n) => 
         C.AppC(c, Seq(C.AtomN(n)))
     case S.Lit(v) => 
         C.AppC(c, Seq(C.AtomL(v)))
+    case S.Let(Seq(), e) => 
+      tail(e, c)
+    case S.Let(Seq((n1, e1), others@_*), e) => 
+      nonTail(e1){v: C.Atom => C.LetP(n1, L3Id,Seq(v), tail(S.Let(others, e), c))}
+    case S.LetRec(funs, e) => 
+      val fs  = funs.map(f => {
+                val c = Symbol.fresh("c_LetRecT")
+                C.Fun(f.name, c, f.args, tail(f.body, c))
+              })
+        C.LetF(fs, tail(e, c))    
     case S.App(e, args) => 
         atomStacker(args, nilAtoms){atoms: Seq[C.Atom] => nonTail(e){f => C.AppF(f, c, atoms)}}
+    case S.If(e1, e2, e3) => 
+        val ct = Symbol.fresh("ctT")
+        val cf = Symbol.fresh("cfT")
+        val thenCnt = C.Cnt(ct, Seq(), tail(e2, c)) // { v2: C.Atom =>C.AppC(c, Seq(v2))}
+        val elseCnt = C.Cnt(cf, Seq(),tail(e3, c)) // { v3: C.Atom =>C.AppC(c, Seq(v3))}
+        C.LetC(Seq(thenCnt),
+          C.LetC(Seq(elseCnt), 
+            cond(e1, ct, cf)
+        ))
+    case S.Prim(p:L3TestPrimitive, args) => 
+        tail(S.If(t, S.Lit(BooleanLit(true)), S.Lit(BooleanLit(false))), c)
+    case S.Prim(p:L3ValuePrimitive, args) =>
+        val primRes = Symbol fresh "primResT"
+        atomStacker(args, nilAtoms){
+          atoms => C.LetP(primRes, p, atoms, C.AppC(c, Seq(C.AtomN(primRes))) )
+
+        }
+    case S.Halt(e) => 
+      nonTail(e){v => C.Halt(v)}
     case _ => nonTail(t){v: C.Atom => C.AppC(c, Seq(v))}
+    }
 
   } 
 

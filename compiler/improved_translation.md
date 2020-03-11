@@ -198,14 +198,6 @@ becomes
 [(if e1 e2 #t)]C cf ct
 
 
-====================================
-Skip this one ?
-
-[(if (@p e1 ...) e2 e3)]C ct cf
-
-becomes 
-
-[(if (@p e1 ...) e2 e3)]N {\v if (@p v #t) ct cf}
 
 ====================================
 
