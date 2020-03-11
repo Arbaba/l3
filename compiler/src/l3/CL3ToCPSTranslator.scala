@@ -90,7 +90,7 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
           C.LetP(n1, L3Id, Seq(v1), cond(S.Let(otherArgs, body), ct, cf))
         }
       case S.If(e1, S.Lit(BooleanLit(v1)), S.Lit(BooleanLit(v2))) => 
-        if(v1 == v2) cond(e1, ct, cf)//trivial case. we still have to evaluate the condition in case it produces a side effect
+        if(v1 == v2) throw new Exception("Unhandled case")//cond(e1, ct, cf)//trivial case. we still have to evaluate the condition in case it produces a side effect
         else if(v1 == true) cond(e1, ct, cf)
         else cond(e1, cf, ct)
       case S.If(e1, e2, S.Lit(BooleanLit(v3))) => 
@@ -102,7 +102,10 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
       case S.If(e1, e2, e3) => nonTail(e1){v: C.Atom => 
         C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(false))), ct, cf)
       }
-      case _ => throw new Exception("Unexpected conditional")
+      case arbitrary => nonTail(arbitrary){v: C.Atom => 
+        C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(true))), ct, cf )
+      }
+      case _ => throw new Exception(s"$t ($cf, $ct)")
     }
   }
 
@@ -147,8 +150,8 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
         val cf = Symbol.fresh("cf")
   
         val plugin = C.Cnt(c, Seq(r), ctx(C.AtomN(r)))
-        val thenCnt = C.Cnt(ct, Seq(), tail(e2, ct)) // { v2: C.Atom =>C.AppC(c, Seq(v2))}
-        val elseCnt = C.Cnt(cf, Seq(),tail(e3, cf)) // { v3: C.Atom =>C.AppC(c, Seq(v3))}
+        val thenCnt = C.Cnt(ct, Seq(), tail(e2, c)) // { v2: C.Atom =>C.AppC(c, Seq(v2))}
+        val elseCnt = C.Cnt(cf, Seq(),tail(e3, c)) // { v3: C.Atom =>C.AppC(c, Seq(v3))}
 
         C.LetC(Seq(plugin),             
           C.LetC(Seq(thenCnt),
