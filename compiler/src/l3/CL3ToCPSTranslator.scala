@@ -20,7 +20,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         }
       }
   }
-  private def bool(v: Boolean): C.Tree = C.AtomL(BooleanLit(v))
+  private def bool(v: Boolean)(pos: Position): S.Tree = S.Lit(BooleanLit(v))(pos)
   /**
     translation of the form λv (appc c v)
     It gets as argument the name of the continuation c 
@@ -31,15 +31,20 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
   /*
   ct cf are continuation names
   */
-  private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = t match {
-    case S.If(e1, bool(false), bool(true)) => cond(tail(e1), cf, ct)
-    case S.If(e1, e2, S.Lit(BooleanLit(false))) => {
-      val ac = Symbol fresh "ac"
-      C.LetC(Seq(C.Cnt(ac, Seq(), cond(e2, ct, cf))), 
-        cond(e1, ac, cf)
-      )
+  private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = {
+    implicit val pos = t.pos
+    t match {
+      //case S.If(e1, bool(false)(t.pos), bool(true)(t.pos)) => cond(tail(e1), cf, ct)
+      case S.If(e1, S.Lit(BooleanLit(false)), S.Lit(BooleanLit(true))) => 
+        cond(e1, cf, ct)
+      case S.If(e1, e2, S.Lit(BooleanLit(false))) => {
+        val ac = Symbol fresh "ac"
+        C.LetC(Seq(C.Cnt(ac, Seq(), cond(e2, ct, cf))), 
+          cond(e1, ac, cf)
+        )
+      }
+      case _ => throw new Exception("Unexpected conditional")
     }
-    case _ => throw new Exception("Unexpected conditional")
   }
 
   private def nonTail(t: S.Tree)(ctx: C.Atom => C.Tree): C.Tree = {
@@ -74,6 +79,13 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
       }
       case S.Let(Seq(), e) => 
         nonTail(e)(ctx)
+      case S.If(e1@S.If, e2, e3) => {
+        val thenCnt = Symbol.fresh("ct")
+        val elseCnt = Symbol.fresh("cf")
+        val thenCnt = C.Cnt(ct, Seq(), tail(e2, ct)) // { v2: C.Atom =>C.AppC(c, Seq(v2))}
+        val elseCnt = C.Cnt(cf, Seq(),tail(e3, cf))
+        val 
+      }
       case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
         val nil: Seq[C.Atom] = Seq()
     
@@ -92,6 +104,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
               atomStacker(e, nil){atoms: Seq[C.Atom] => 
                     C.If(p, atoms, ct, cf)
               })))
+              /**/
       }
       case S.If(e1, e2, e3) => {
         nonTail(S.If(S.Prim(L3Eq, Seq(e1, S.Lit(BooleanLit(false)))), e3, e2))(ctx)
