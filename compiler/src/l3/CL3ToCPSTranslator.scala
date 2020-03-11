@@ -78,9 +78,9 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
   private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = {
     implicit val pos = t.pos
     t match {
-      case S.Lit(b@BooleanLit(v)) => 
+      case S.Lit(BooleanLit(v)) => 
         C.AppC(if(v == true) ct else cf, 
-          Seq(C.AtomL(b)))
+          Seq())
       case name: S.Ident => 
         cond(S.Prim(L3Eq, Seq(name, fal)), cf, ct)
       case S.Let(Seq(), bod) => 
