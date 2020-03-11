@@ -20,7 +20,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
         }
       }
   }
-  private def bool(v: Boolean): C.Atom = C.AtomL(BooleanLit(v))
+def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
   /**
     translation of the form λv (appc c v)
     It gets as argument the name of the continuation c 
@@ -69,20 +69,41 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
     case _ => nonTail(t){v: C.Atom => C.AppC(c, Seq(v))}
     }
 
-  } 
-
+  }
+  val tru = S.Lit(BooleanLit(true))(UnknownPosition)
+  val fal = S.Lit(BooleanLit(false))(UnknownPosition)
   /*
   ct cf are continuation names
   */
-  private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = t match {
-    /*case S.If(e1, bool(false), bool(true)) => cond(tail(e1), cf, ct)
-    case S.If(e1, e2, S.Lit(BooleanLit(false))) => {
-      val ac = Symbol fresh "ac"
-      C.LetC(Seq(C.Cnt(ac, Seq(), cond(e2, ct, cf))), 
-        cond(e1, ac, cf)
-      )
-    }*/
-    case _ => throw new Exception("Unexpected conditional")
+  private def cond(t: S.Tree, ct: Symbol, cf: Symbol): C.Tree = {
+    implicit val pos = t.pos
+    t match {
+      case S.Lit(b@BooleanLit(v)) => 
+        C.AppC(if(v == true) ct else cf, 
+          Seq(C.AtomL(b)))
+      case name: S.Ident => 
+        cond(S.Prim(L3Eq, Seq(name, fal)), cf, ct)
+      case S.Let(Seq(), bod) => 
+        cond(bod, ct, cf)
+      case S.Let(Seq((n1, e1), otherArgs @ _*), body) => 
+        nonTail(e1){ v1: C.Atom =>
+          C.LetP(n1, L3Id, Seq(v1), cond(S.Let(otherArgs, body), ct, cf))
+        }
+      case S.If(e1, S.Lit(BooleanLit(v1)), S.Lit(BooleanLit(v2))) => 
+        if(v1 == v2) cond(e1, ct, cf)//trivial case. we still have to evaluate the condition in case it produces a side effect
+        else if(v1 == true) cond(e1, ct, cf)
+        else cond(e1, cf, ct)
+      case S.If(e1, e2, S.Lit(BooleanLit(v3))) => 
+        val ac = Symbol fresh "ac"
+        val cnt = C.Cnt(ac, Seq(), cond(e2, ct, cf))
+        C.LetC(Seq(cnt), cond(e1, ac, cf))
+      case S.If(e1, e2@S.Lit(BooleanLit(_)), e3) => 
+        cond(S.If(e1, e3, e2), cf, ct)
+      case S.If(e1, e2, e3) => nonTail(e1){v: C.Atom => 
+        C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(false))), ct, cf)
+      }
+      case _ => throw new Exception("Unexpected conditional")
+    }
   }
 
   private def nonTail(t: S.Tree)(ctx: C.Atom => C.Tree): C.Tree = {
@@ -135,6 +156,7 @@ object CL3ToCPSTranslator extends (S.Tree => C.Tree) {
               atomStacker(e, nil){atoms: Seq[C.Atom] => 
                     C.If(p, atoms, ct, cf)
               })))
+              /**/
       }
       case S.If(e1, e2, e3) => {
         nonTail(S.If(S.Prim(L3Eq, Seq(e1, S.Lit(BooleanLit(false)))), e3, e2))(ctx)
