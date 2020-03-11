@@ -96,9 +96,9 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
         else cond(e1, cf, ct)
       case S.If(e1, e2, S.Lit(BooleanLit(v3))) => 
         val ac = Symbol fresh "ac"
-        val (ct_, cf_ ) = if(v3) (ct, cf) else (cf, ct)
+        val (ct_, cf_ ) = if(!v3) (ct, cf) else (cf, ct)
         val cnt = C.Cnt(ac, Seq(), cond(e2, ct_, cf_))
-        C.LetC(Seq(cnt), cond(e1, ac, ct_))
+        C.LetC(Seq(cnt), cond(e1, ac, cf_))
       case S.If(e1, e2@S.Lit(BooleanLit(_)), e3) => 
         cond(S.If(e1, e3, e2), cf, ct)
       case S.If(e1, e2, e3) => nonTail(e1){v: C.Atom => 
@@ -150,27 +150,8 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
       }
       case S.Let(Seq(), e) => 
         nonTail(e)(ctx)
-      /*case S.If(S.Prim(p: L3TestPrimitive, e), e2, e3) => {
-        val nil: Seq[C.Atom] = Seq()
-    
-        val r = Symbol.fresh("r_If")
-        val c = Symbol.fresh("c_If")
-        val ct = Symbol.fresh("ct")
-        val cf = Symbol.fresh("cf")
-  
-        val plugin = C.Cnt(c, Seq(r), ctx(C.AtomN(r)))
-        val thenCnt = C.Cnt(ct, Seq(), tail(e2, c)) // { v2: C.Atom =>C.AppC(c, Seq(v2))}
-        val elseCnt = C.Cnt(cf, Seq(),tail(e3, c)) // { v3: C.Atom =>C.AppC(c, Seq(v3))}
 
-        C.LetC(Seq(plugin),             
-          C.LetC(Seq(thenCnt),
-            C.LetC(Seq(elseCnt), 
-              atomStacker(e, nil){atoms: Seq[C.Atom] => 
-                    C.If(p, atoms, ct, cf)
-              })))
-              /**/
-      }*/
-      case S.If(e1@S.Prim(p: L3TestPrimitive, _), e2, e3) => {
+      case S.If(e1, e2, e3) => {
         val nil: Seq[C.Atom] = Seq()
     
         val r = Symbol.fresh("r_If")
@@ -188,9 +169,7 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
               cond(e1, ct, cf)
               )))
       }
-      case S.If(e1, e2, e3) => {
-        nonTail(S.If(S.Prim(L3Eq, Seq(e1, S.Lit(BooleanLit(false)))), e3, e2))(ctx)
-      }
+  
       case S.App(e, args) => 
         val nil :Seq[C.Atom] = Seq()
         val c = Symbol.fresh("c_App")
