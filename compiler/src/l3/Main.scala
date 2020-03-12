@@ -15,7 +15,8 @@ object Main {
       CL3ToCPSTranslator
         andThen treePrinter("---------- After translation to CPS")
         andThen treeChecker
-        andThen CPSInterpreterHigh
+        andThen CPSValueRepresenter
+        andThen CPSInterpreterLowNoCC
     )
 
     val basePath = Paths.get(".").toAbsolutePath
