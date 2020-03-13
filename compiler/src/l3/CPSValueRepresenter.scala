@@ -6,6 +6,7 @@ import l3.{SymbolicCPSTreeModuleLow => L}
 object CPSValueRepresenter extends (H.Tree => L.Tree) {
   def lowLiteral(i: Int) = apply_(H.AtomL(IntLit(L3Int(i))))
   val one = apply_(H.AtomL(IntLit(L3Int(1))))
+  val unboxedOne = L.AtomL(1)
   type IntBoxer = L.Atom => (L.Atom => L.Tree) => L.Tree
   def intOp(op: CPSValuePrimitive, y: L.Atom): (L.Atom) => (L.Atom => L.Tree) => L.Tree = {
     v: L.Atom => 
@@ -264,7 +265,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       )
     case H.Halt(atom) => 
       val raw = Symbol.fresh("r")
-      L.LetP(raw, CPSShiftRight, Seq(apply_(atom), one),
+      L.LetP(raw, CPSShiftRight, Seq(apply_(atom), unboxedOne),
         L.Halt(L.AtomN(raw))
       )
     case H.LetP(name, L3Id, Seq(v), body) => 
@@ -273,20 +274,6 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       )
     case x => println(x); ???
   }
-/*
-case object L3IntDiv extends L3ValuePrimitive("/", 2)
-case object L3IntMod extends L3ValuePrimitive("%", 2)
-*/
-  def primitiveApply(testPrimitive: H.TestPrimitive): L.TestPrimitive = testPrimitive match {
-      case L3BlockP => ???
-      case L3IntP => ???
-      case L3IntLt => CPSLt
-      case L3IntLe => CPSLe
-      case L3CharP => ???
-      case L3BoolP => ???
-      case L3UnitP => ???
-      case L3Eq => CPSEq
-    }
 
   def tempLetP(p: L.ValuePrimitive, args: Seq[L.Atom])(body: L.AtomN => L.Tree): L.Tree = {
       val tmp = Symbol.fresh("ux")
