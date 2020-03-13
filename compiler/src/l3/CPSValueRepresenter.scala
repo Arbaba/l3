@@ -52,13 +52,13 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3IntAdd, atoms@Seq(_, _), body) => 
       val t1 = Symbol.fresh("t1")
       L.LetP(t1, CPSAdd, atoms.map(apply_), 
-        L.LetP(name, CPSSub, Seq(L.AtomN(t1), one),
+        L.LetP(name, CPSSub, Seq(L.AtomN(t1), unboxedOne),
           apply(body)
       ))
     case H.LetP(name, L3IntSub, atoms@Seq(_, _), body) => 
       val t1 = Symbol.fresh("t1")
       L.LetP(t1, CPSSub, atoms.map(apply_),
-        L.LetP(name, CPSAdd, Seq(L.AtomN(t1), one), 
+        L.LetP(name, CPSAdd, Seq(L.AtomN(t1), unboxedOne), 
           apply(body)
         )
       )
@@ -66,10 +66,10 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val n = Symbol.fresh("n")
       val m = Symbol.fresh("m")
       val x = Symbol.fresh("x")
-      L.LetP(n, CPSSub, Seq(apply_(v1), one), 
-        L.LetP(m, CPSShiftRight, Seq(apply_(v2), one), 
+      L.LetP(n, CPSSub, Seq(apply_(v1), unboxedOne), 
+        L.LetP(m, CPSShiftRight, Seq(apply_(v2), unboxedOne), 
           L.LetP(x, CPSMul, Seq(L.AtomN(n), L.AtomN(m)), 
-            L.LetP(name, CPSAdd, Seq(L.AtomN(x), one), 
+            L.LetP(name, CPSAdd, Seq(L.AtomN(x), unboxedOne), 
               apply(body)
             )
           )
@@ -87,7 +87,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
           min1(apply_(v2)){t2: L.Atom => 
             val r = Symbol.fresh("r")
             L.LetP(r, CPSDiv, Seq(t1, t2), 
-              L.LetP(name, CPSAdd, Seq(L.AtomN(r), one), apply(body))
+              L.LetP(name, CPSAdd, Seq(L.AtomN(r), unboxedOne), apply(body))
             )
           }
         }
@@ -97,11 +97,11 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val s2 = Symbol.fresh("s")
       val mod = Symbol.fresh("mod")
       val l = Symbol.fresh("l")
-      L.LetP(s1, CPSShiftRight, Seq(apply_(v1), one),
-        L.LetP(s2, CPSShiftRight, Seq(apply_(v2), one),
+      L.LetP(s1, CPSShiftRight, Seq(apply_(v1), unboxedOne),
+        L.LetP(s2, CPSShiftRight, Seq(apply_(v2), unboxedOne),
           L.LetP(mod, CPSMod, Seq(L.AtomN(s1), L.AtomN(s2)),
-            L.LetP(l, CPSShiftLeft, Seq(L.AtomN(mod), one),
-              L.LetP(name, CPSAdd, Seq(L.AtomN(l), one),
+            L.LetP(l, CPSShiftLeft, Seq(L.AtomN(mod), unboxedOne),
+              L.LetP(name, CPSAdd, Seq(L.AtomN(l), unboxedOne),
                 apply(body)
               )
             )
@@ -112,10 +112,10 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val t1 = Symbol.fresh("t1")
       val t2 = Symbol.fresh("t2")
       val shift = Symbol.fresh("s")
-      L.LetP(t1, CPSSub, Seq(apply_(v1), one),
-        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), one),
+      L.LetP(t1, CPSSub, Seq(apply_(v1), unboxedOne),
+        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne),
           L.LetP(shift, CPSShiftLeft, Seq(L.AtomN(t1), L.AtomN(t2)),
-            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), one),
+            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), unboxedOne),
               apply(body)
             )
           )
@@ -125,10 +125,10 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val t1 = Symbol.fresh("t1")
       val t2 = Symbol.fresh("t2")
       val shift = Symbol.fresh("s")
-      L.LetP(t1, CPSSub, Seq(apply_(v1), one),
-        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), one), 
+      L.LetP(t1, CPSSub, Seq(apply_(v1), unboxedOne),
+        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne), 
           L.LetP(shift, CPSShiftRight, Seq(L.AtomN(t1), L.AtomN(t2)),
-            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), one),
+            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), unboxedOne),
               apply(body)
             )
           )
@@ -141,7 +141,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3IntBitwiseXOr, atoms@Seq(_, _), body) =>
       val tmp = Symbol.fresh("t")
       L.LetP(tmp, CPSXOr, atoms.map(apply_), 
-        L.LetP(name, CPSOr, Seq(L.AtomN(tmp), one), apply(body))
+        L.LetP(name, CPSOr, Seq(L.AtomN(tmp), unboxedOne), apply(body))
       )
     //  val n = Symbol.fresh("n")
 
@@ -153,7 +153,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val t1 = Symbol.fresh("t1")
       L.LetP(t1, CPSAnd, Seq(L.AtomN(t1), apply_(v)), 
           L.If(CPSEq, 
-            Seq(L.AtomN(t1), one),
+            Seq(L.AtomN(t1), unboxedOne),
               ct, cf))
     case H.If(L3IntLt, atoms@Seq(_, _), ct, cf) =>
       L.If(CPSLt, atoms.map(apply_), ct, cf) 
@@ -162,11 +162,11 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.If(L3Eq, atoms@Seq(_, _), ct, cf) => 
       L.If(CPSEq, atoms.map(apply_), ct, cf)
     case H.If(L3UnitP, atom@Seq(v), ct, cf) => 
-      L.If(CPSEq, Seq(apply_(v), lowLiteral(2)), ct, cf)
+      L.If(CPSEq, Seq(apply_(v), L.AtomL(2)), ct, cf)
     case H.If(L3BoolP, Seq(v), ct, cf) =>
       val t = Symbol.fresh("t")
-      L.LetP(t, CPSAnd, Seq(apply_(v), lowLiteral(0xF)),
-        L.If(CPSEq, Seq(L.AtomN(t), lowLiteral(0xA)), ct, cf)
+      L.LetP(t, CPSAnd, Seq(apply_(v), L.AtomL(0xF)),
+        L.If(CPSEq, Seq(L.AtomN(t), L.AtomL(0xA)), ct, cf)
       )
       /*val t = Symbol.fresh("t")
       L.LetP(t, CPSEq, Seq(apply_(v), lowLiteral(2)), 
@@ -175,20 +175,20 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     /*Blocks*/
     case H.If(L3BlockP, Seq(v), ct, cf) =>  
       val unboxed = Symbol.fresh("u")
-      L.LetP(unboxed, CPSAnd, Seq(apply_(v), lowLiteral(3)), 
-        L.If(CPSEq, Seq(L.AtomN(unboxed), lowLiteral(0)), ct, cf)
+      L.LetP(unboxed, CPSAnd, Seq(apply_(v), L.AtomL(3)), 
+        L.If(CPSEq, Seq(L.AtomN(unboxed), L.AtomL(0)), ct, cf)
       )
     case H.LetP(name, L3BlockAlloc(tag), Seq(v), body) => 
       val unboxed = Symbol.fresh("u")
-      L.LetP(unboxed, CPSShiftRight, Seq(apply_(v), one),
+      L.LetP(unboxed, CPSShiftRight, Seq(apply_(v), unboxedOne),
         L.LetP(name, CPSBlockAlloc(tag), Seq(L.AtomN(unboxed)), apply(body))
       )
     case H.LetP(name, L3BlockTag, Seq(v), body) => 
       val t1 = Symbol.fresh("t1")
       val t2 = Symbol.fresh("t2")
       L.LetP(t1, CPSBlockTag, Seq(apply_(v)),
-        L.LetP(t2, CPSShiftLeft, Seq(L.AtomN(t1), one),
-          L.LetP(name, CPSAdd, Seq(L.AtomN(t2), one),
+        L.LetP(t2, CPSShiftLeft, Seq(L.AtomN(t1), unboxedOne),
+          L.LetP(name, CPSAdd, Seq(L.AtomN(t2), unboxedOne),
             apply(body)
           )
         )
@@ -197,8 +197,8 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
       L.LetP(t1, CPSBlockLength, Seq(apply_(v)),
-        L.LetP(t2, CPSShiftLeft, Seq(L.AtomN(t1), one),
-          L.LetP(name, CPSAdd, Seq(L.AtomN(t2), one),
+        L.LetP(t2, CPSShiftLeft, Seq(L.AtomN(t1), unboxedOne),
+          L.LetP(name, CPSAdd, Seq(L.AtomN(t2), unboxedOne),
             apply(body)
           )
         )
@@ -206,8 +206,8 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3BlockGet, Seq(v1, v2), body) => 
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
-      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), one),
-        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), one),
+      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), unboxedOne),
+        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne),
           L.LetP(name, CPSBlockGet, Seq(L.AtomN(t1), L.AtomN(t2)),
               apply(body)
           )
@@ -216,10 +216,9 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3BlockSet, Seq(v1, v2, v3), body) => 
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
-      val t3 = Symbol.fresh("t")
-      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), one), 
-        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), one),
-          L.LetP(t3, CPSShiftRight, Seq(apply_(v3), one),
+      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), unboxedOne), 
+        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne),
+          L.LetP(name, CPSShiftRight, Seq(apply_(v3), unboxedOne),
             apply(body)
           )
         )
@@ -229,7 +228,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val t1 = Symbol.fresh("t1")
       L.LetP(t1, CPSByteRead, Seq(), 
         sl1(L.AtomN(t1)){t2: L.Atom => 
-          L.LetP(name, CPSAdd, Seq(t2, one), 
+          L.LetP(name, CPSAdd, Seq(t2, unboxedOne), 
             apply(body)
           )
         }
@@ -239,27 +238,27 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     */
     case H.LetP(name, L3ByteWrite, Seq(v), body) => 
       val unboxed = Symbol.fresh("u")
-      L.LetP(unboxed, CPSShiftRight, Seq(apply_(v), one),
+      L.LetP(unboxed, CPSShiftRight, Seq(apply_(v), unboxedOne),
         L.LetP(name, CPSByteWrite, Seq(L.AtomN(unboxed)), 
           apply(body)
         )
       )
     //chars
     case H.LetP(name, L3CharToInt, Seq(v1), e) => 
-      L.LetP(name, CPSShiftRight, Seq(apply_(v1), lowLiteral(2)), 
+      L.LetP(name, CPSShiftRight, Seq(apply_(v1), L.AtomL(2)), 
         apply(e)
       )
     case H.LetP(name, L3IntToChar, Seq(v1), e) => 
       val t1 = Symbol.fresh("t1")
-      L.LetP(t1, CPSShiftLeft, Seq(apply_(v1), lowLiteral(2)), 
-        L.LetP(name, CPSAdd, Seq(L.AtomN(t1), lowLiteral(2)), 
+      L.LetP(t1, CPSShiftLeft, Seq(apply_(v1), L.AtomL(2)), 
+        L.LetP(name, CPSAdd, Seq(L.AtomN(t1), L.AtomL(2)), 
           apply(e)
         )
       )
     case H.If(L3CharP, Seq(v), ct, cf) => 
       val unboxed = Symbol.fresh("u")
-      L.LetP(unboxed, CPSAnd, Seq(apply_(v), lowLiteral(7)), 
-        L.If(CPSEq, Seq(L.AtomN(unboxed), lowLiteral(6)), 
+      L.LetP(unboxed, CPSAnd, Seq(apply_(v), L.AtomL(7)), 
+        L.If(CPSEq, Seq(L.AtomN(unboxed), L.AtomL(6)), 
           ct, cf
         )
       )
@@ -272,7 +271,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       L.LetP(name, CPSId, Seq(apply_(v)), 
         apply(body)
       )
-    case x => println(x); ???
+    case x => throw new Exception(s"$x not implemented!")
   }
 
   def tempLetP(p: L.ValuePrimitive, args: Seq[L.Atom])(body: L.AtomN => L.Tree): L.Tree = {

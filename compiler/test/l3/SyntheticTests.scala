@@ -12,11 +12,7 @@ trait SyntheticTests {
 
   // Validate the output of a self-validating test.
   def isValidTestResult(s: String): Boolean =
-    {
-      println(s"actual: $s expected: ${(s(0) +: ('A' to s(0))).mkString}")
      ! s.isEmpty && (s == ((s(0) +: ('A' to s(0))).mkString))
-    }
-
   def testSelfValidatingOutput(implicit path: utest.framework.TestPath) = {
     val testFileName = "../tests/" + path.value.last.split(" ")(0) + ".l3"
     assertMatch(compileAndRun(testFileName)) {
