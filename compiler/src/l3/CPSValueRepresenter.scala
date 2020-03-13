@@ -32,11 +32,16 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       L.LetP(t1, CPSShiftRight, Seq(apply_(arg), L.AtomL(1)), 
             L.LetP(name,CPSBlockAlloc(tag) , Seq(L.AtomN(t1)), apply(body)))
     
-
+  /*
+    Continuations
+  */
     case H.LetC(continuations, e) => L.LetC(continuations.map{
       case H.Cnt(ni, ai, ei) => L.Cnt(ni, ai, apply(ei))
     }, apply(e))
     case H.AppC(cntName, valueBindings) => L.AppC(cntName, valueBindings.map(apply_))
+    /*
+      Functions
+    */
     case H.LetF(functions, body) => L.LetF(functions.map{
       case H.Fun(name, retC, args, body) => L.Fun(name, retC, args, apply(body))
     }, apply(body))
@@ -86,7 +91,57 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
           }
         }
       }
-
+    case H.LetP(name, L3IntMod, atoms@Seq(v1, v2), body) => 
+      val s1 = Symbol.fresh("s")
+      val s2 = Symbol.fresh("s")
+      val mod = Symbol.fresh("mod")
+      val l = Symbol.fresh("l")
+      L.LetP(s1, CPSShiftRight, Seq(apply_(v1), one),
+        L.LetP(s2, CPSShiftRight, Seq(apply_(v2), one),
+          L.LetP(mod, CPSMod, Seq(L.AtomN(s1), L.AtomN(s2)),
+            L.LetP(l, CPSShiftLeft, Seq(L.AtomN(mod), one),
+              L.LetP(name, CPSAdd, Seq(L.AtomN(l), one),
+                apply(body)
+              )
+            )
+          )
+        )
+      )
+    case H.LetP(name, L3IntShiftLeft, atoms@Seq(v1, v2), body) => 
+      val t1 = Symbol.fresh("t1")
+      val t2 = Symbol.fresh("t2")
+      val shift = Symbol.fresh("s")
+      L.LetP(t1, CPSSub, Seq(apply_(v1), one),
+        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), one),
+          L.LetP(shift, CPSShiftLeft, Seq(L.AtomN(t1), L.AtomN(t2)),
+            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), one),
+              apply(body)
+            )
+          )
+        )
+      )
+    case H.LetP(name, L3IntShiftRight, atoms@Seq(v1, v2), body) =>
+      val t1 = Symbol.fresh("t1")
+      val t2 = Symbol.fresh("t2")
+      val shift = Symbol.fresh("s")
+      L.LetP(t1, CPSSub, Seq(apply_(v1), one),
+        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), one), 
+          L.LetP(shift, CPSShiftRight, Seq(L.AtomN(t1), L.AtomN(t2)),
+            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), one),
+              apply(body)
+            )
+          )
+        )
+      )
+    case H.LetP(name, L3IntBitwiseAnd, atoms@Seq(_, _), body)=> 
+      L.LetP(name, CPSAnd, atoms.map(apply_), apply(body))
+    case H.LetP(name, L3IntBitwiseOr, atoms@Seq(_, _), body) =>
+      L.LetP(name, CPSOr, atoms.map(apply_), apply(body))
+    case H.LetP(name, L3IntBitwiseXOr, atoms@Seq(_, _), body) =>
+      val tmp = Symbol.fresh("t")
+      L.LetP(tmp, CPSXOr, atoms.map(apply_), 
+        L.LetP(name, CPSOr, Seq(L.AtomN(tmp), one), apply(body))
+      )
     //  val n = Symbol.fresh("n")
 
     /*
@@ -107,6 +162,11 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       L.If(CPSEq, atoms.map(apply_), ct, cf)
     case H.If(L3UnitP, atom@Seq(v), ct, cf) => 
       L.If(CPSEq, Seq(apply_(v), lowLiteral(2)), ct, cf)
+    case H.If(L3BoolP, Seq(v), ct, cf) =>
+      val t = Symbol.fresh("t")
+      L.LetP(t, CPSAnd, Seq(apply_(v), lowLiteral(0xF)),
+        L.If(CPSEq, Seq(L.AtomN(t), lowLiteral(0xA)), ct, cf)
+      )
       /*val t = Symbol.fresh("t")
       L.LetP(t, CPSEq, Seq(apply_(v), lowLiteral(2)), 
         L.If()
@@ -178,7 +238,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     */
     case H.LetP(name, L3ByteWrite, Seq(v), body) => 
       val unboxed = Symbol.fresh("u")
-      L.LetP(unboxed, CPSShiftRight, Seq(apply_(v)),
+      L.LetP(unboxed, CPSShiftRight, Seq(apply_(v), one),
         L.LetP(name, CPSByteWrite, Seq(L.AtomN(unboxed)), 
           apply(body)
         )
@@ -202,7 +262,16 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
           ct, cf
         )
       )
-    case H.Halt(atom) => L.Halt(apply_(atom))
+    case H.Halt(atom) => 
+      val raw = Symbol.fresh("r")
+      L.LetP(raw, CPSShiftRight, Seq(apply_(atom), one),
+        L.Halt(L.AtomN(raw))
+      )
+    case H.LetP(name, L3Id, Seq(v), body) => 
+      L.LetP(name, CPSId, Seq(apply_(v)), 
+        apply(body)
+      )
+    case x => println(x); ???
   }
 /*
 case object L3IntDiv extends L3ValuePrimitive("/", 2)
