@@ -23,6 +23,17 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     val t = Symbol.fresh("t")
     L.LetP(t, CPSAdd, Seq(apply_(v), one), callback(L.AtomN(t)))
   }
+  def boxInt(v: L.Atom)(callback: L.Atom => L.Tree) = {
+    val t1 = Symbol.fresh("t1")
+    val t2 = Symbol.fresh("t2")
+    L.LetP(t1, CPSShiftLeft, Seq(v, unboxedOne),
+      L.LetP(t2, CPSAdd, Seq(L.AtomN(t1), unboxedOne),
+        callback(L.AtomN(t2))
+      )
+    ) 
+  }
+
+  def unbox = ??? //shiftright
   def apply(tree: H.Tree): L.Tree = tree match {
     case H.LetP(name: H.Name, p@L3IntAdd, Seq(x,y ) , body) => 
       tempLetP(CPSXOr, Seq(apply_(x), L.AtomL(1))){ux => 
@@ -178,6 +189,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       L.LetP(unboxed, CPSAnd, Seq(apply_(v), L.AtomL(3)), 
         L.If(CPSEq, Seq(L.AtomN(unboxed), L.AtomL(0)), ct, cf)
       )
+    
     case H.LetP(name, L3BlockAlloc(tag), Seq(v), body) => 
       val unboxed = Symbol.fresh("u")
       L.LetP(unboxed, CPSShiftRight, Seq(apply_(v), unboxedOne),
@@ -203,11 +215,11 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
           )
         )
       )
-    case H.LetP(name, L3BlockGet, Seq(v1, v2), body) => 
+    case H.LetP(name, L3BlockGet, Seq(block, slot), body) => 
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
-      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), unboxedOne),
-        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne),
+      L.LetP(t1, CPSShiftRight, Seq(apply_(block), L.AtomL(2)),
+        L.LetP(t2, CPSShiftRight, Seq(apply_(slot), unboxedOne),
           L.LetP(name, CPSBlockGet, Seq(L.AtomN(t1), L.AtomN(t2)),
               apply(body)
           )
