@@ -162,7 +162,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     //Logical primitives
     case H.If(L3IntP, Seq(v), ct, cf) => 
       val t1 = Symbol.fresh("t1")
-      L.LetP(t1, CPSAnd, Seq(L.AtomN(t1), apply_(v)), 
+      L.LetP(t1, CPSAnd, Seq(unboxedOne, apply_(v)), 
           L.If(CPSEq, 
             Seq(L.AtomN(t1), unboxedOne),
               ct, cf))
