@@ -220,7 +220,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       val t2 = Symbol.fresh("t")
       L.LetP(t1, CPSShiftRight, Seq(apply_(block), L.AtomL(2)),
         L.LetP(t2, CPSShiftRight, Seq(apply_(slot), unboxedOne),
-          L.LetP(name, CPSBlockGet, Seq(L.AtomN(t1), L.AtomN(t2)),
+          L.LetP(name, CPSBlockGet, Seq(apply_(block), L.AtomN(t2)),
               apply(body)
           )
         )
@@ -228,13 +228,11 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3BlockSet, Seq(v1, v2, v3), body) => 
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
-      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), unboxedOne), 
-        L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne),
-          L.LetP(name, CPSShiftRight, Seq(apply_(v3), unboxedOne),
-            apply(body)
-          )
-        )
-      )
+        L.LetP(t1, CPSShiftRight, Seq(apply_(v2), unboxedOne),
+            L.LetP(name, CPSBlockSet, Seq(apply_(v1), L.AtomN(t1),(apply_(v3))),
+              apply(body)
+          ))
+    
     //bytes
     case H.LetP(name, L3ByteRead, Seq(), body) => 
       val t1 = Symbol.fresh("t1")
@@ -298,5 +296,26 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.AtomL(BooleanLit(b)) => L.AtomL(if(b) 0x1A else 0xA)
     case H.AtomL(CharLit(c)) => L.AtomL((c << 3) | 6 )
     case H.AtomL(UnitLit) => L.AtomL(2)
+  }
+    def checkLSB(v: Int, lsb: Int ): Boolean = (v & lsb) == lsb
+
+  def untag(a: L.Atom): L.Atom = {
+
+      a match {
+      case L.AtomN(n) => 
+        L.AtomN(n)
+      case L.AtomL(v) =>
+      if(checkLSB(v,1)){
+        L.AtomL(v >> 1)
+      }else if (checkLSB(v, 00)){
+        L.AtomL(v >> 2)
+      }else if (checkLSB(v, 110)){
+        L.AtomL(v >> 3)
+
+      }else {
+        L.AtomL(v >> 4)
+
+      }
+    }
   }
 }
