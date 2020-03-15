@@ -87,22 +87,26 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
         )
       )
      /*
-      2(([n]-1)/2 / ([m] - 1)/2) + 1
-    = 2(([n] - 1) / ([m] - 1)) + 1
-    = ([n] - 1) << 1 / ([m] - 1) + 1
-    = ([n] - 1) 
+      [n / m] = ([n] - 1)/ ([m] - 1) + 1
      */ 
+
     case H.LetP(name, L3IntDiv, atoms@Seq(v1, v2), body) => 
-      min1(apply_(v1)){t1: L.Atom => 
-        sl1(t1){t2: L.Atom => 
-          min1(apply_(v2)){t2: L.Atom => 
+      def m1(a: L.Atom)(body : L.Atom => L.Tree): L.Tree = {
+        val fresh = Symbol fresh "v"
+        L.LetP(fresh, CPSSub, Seq(a, unboxedOne), body(L.AtomN(fresh)))
+
+      }
+      m1(apply_(v1)){t1: L.Atom => 
+        m1(apply_(v2)){t2: L.Atom => 
             val r = Symbol.fresh("r")
             L.LetP(r, CPSDiv, Seq(t1, t2), 
-              L.LetP(name, CPSAdd, Seq(L.AtomN(r), unboxedOne), apply(body))
+              boxInt(L.AtomN(r)){
+                a:L.Atom => L.LetP(name, CPSId, Seq(a), apply(body))
+              }
             )
-          }
         }
       }
+    
     case H.LetP(name, L3IntMod, atoms@Seq(v1, v2), body) => 
       val s1 = Symbol.fresh("s")
       val s2 = Symbol.fresh("s")
@@ -218,13 +222,12 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3BlockGet, Seq(block, slot), body) => 
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
-      L.LetP(t1, CPSShiftRight, Seq(apply_(block), L.AtomL(2)),
         L.LetP(t2, CPSShiftRight, Seq(apply_(slot), unboxedOne),
           L.LetP(name, CPSBlockGet, Seq(apply_(block), L.AtomN(t2)),
               apply(body)
           )
         )
-      )
+      
     case H.LetP(name, L3BlockSet, Seq(v1, v2, v3), body) => 
       val t1 = Symbol.fresh("t")
       val t2 = Symbol.fresh("t")
