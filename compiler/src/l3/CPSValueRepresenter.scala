@@ -239,13 +239,14 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     //bytes
     case H.LetP(name, L3ByteRead, Seq(), body) => 
       val t1 = Symbol.fresh("t1")
+
       L.LetP(t1, CPSByteRead, Seq(), 
-        sl1(L.AtomN(t1)){t2: L.Atom => 
-          L.LetP(name, CPSAdd, Seq(t2, unboxedOne), 
+        boxInt(L.AtomN(t1)){boxed  => 
+          L.LetP(name, CPSId, Seq(boxed), 
             apply(body)
-          )
-        }
+          )}
       )
+      
     /*
       L
     */
