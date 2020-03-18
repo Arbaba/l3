@@ -139,12 +139,16 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     case H.LetP(name, L3IntShiftRight, atoms@Seq(v1, v2), body) =>
       val t1 = Symbol.fresh("t1")
       val t2 = Symbol.fresh("t2")
+      val t3 = Symbol.fresh("t3")
       val shift = Symbol.fresh("s")
-      L.LetP(t1, CPSSub, Seq(apply_(v1), unboxedOne),
+      L.LetP(t1, CPSShiftRight, Seq(apply_(v1), unboxedOne),
         L.LetP(t2, CPSShiftRight, Seq(apply_(v2), unboxedOne), 
-          L.LetP(shift, CPSShiftRight, Seq(L.AtomN(t1), L.AtomN(t2)),
-            L.LetP(name, CPSAdd, Seq(L.AtomN(shift), unboxedOne),
-              apply(body)
+            L.LetP(shift, CPSShiftRight, Seq(L.AtomN(t1), L.AtomN(t2)),
+
+              L.LetP(t3, CPSShiftLeft, Seq(L.AtomN(shift), unboxedOne),
+              L.LetP(name, CPSAdd, Seq(L.AtomN(t3), unboxedOne),
+                apply(body)
+              )
             )
           )
         )
