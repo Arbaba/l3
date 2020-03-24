@@ -59,21 +59,34 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       case atom: H.Atom => atomAsFV(atom)
     }
   }
-
-  def closure(letf: H.LetF, ctx: Map[Symbol, Symbol]): L.Tree = {
+  def substitute(e: L.Tree, ctx: Map[Symbol, Symbol]): L.Tree = e match  {  
+    case _ => ???
+  }
+  def closure(letf: H.LetF): L.Tree = {
+    //Close fv calls with environment access
+    def blockGet(f: Symbol, env: Symbol , fv: Seq[(Symbol, Int)], ctx: Map[Symbol, Symbol], body: L.Tree): L.Tree =   fv match {
+       case Seq((symbol, idx),tail) => 
+        letpFresh(CPSBlockGet, Seq(L.AtomN(env), L.AtomL(idx))){case L.AtomN(v)=>  blockGet(f, env, fv, ctx + (symbol ->v), body) } 
+        case Seq() => 
+         substitute(body, ctx)
+    }
+    //Closure initialization
+    def blockSet(f: Symbol, fv: Seq[(Symbol, Int)], body: L.Tree): L.Tree =   fv match {
+      case Seq((symbol, idx),tail) => 
+        letpFresh(CPSBlockSet, Seq(L.AtomN(f),L.AtomL(idx), L.AtomN(symbol))){_ => blockSet(f, fv.tail, body)}
+      case Seq() => 
+        body
+    }
     def close(fun: H.Fun): L.Fun = {
       val w1 = Symbol.fresh("w")
       val env1 = Symbol.fresh("env")
-      L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, 
-        val v1 = Symbol.fresh("v")
-        L.LetP(v1, CPSBlockGet, 
-          Seq(L.AtomN(env1))
-        )
-      )
-    } 
-    L.LetF(, 
-
-    )
+      val fv = freeVariables(fun.body).toSeq
+      val fvzipped = fv.zip(1 to fv.size)
+      //val bset = letp(fun.name, CPSBlockAlloc(202), fv.length, blockSet(fun.name, (0, w1):: fvzipped, apply(body)))
+      L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, blockGet(fun.name, env1, fvzipped, Map(fun.name -> env1), apply(fun.body)) )
+    }
+   
+    ???
   }
 
   /* 
