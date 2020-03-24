@@ -60,6 +60,21 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     }
   }
 
+  def closure(letf: H.LetF, ctx: Map[Symbol, Symbol]): L.Tree = {
+    def close(fun: H.Fun): L.Fun = {
+      val w1 = Symbol.fresh("w")
+      val env1 = Symbol.fresh("env")
+      L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, 
+        val v1 = Symbol.fresh("v")
+        L.LetP(v1, CPSBlockGet, 
+          Seq(L.AtomN(env1))
+        )
+      )
+    } 
+    L.LetF(, 
+
+    )
+  }
 
   /* 
     Tree Transformation 
