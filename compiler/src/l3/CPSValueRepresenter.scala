@@ -35,6 +35,31 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
 
   }
 
+  /*def freeVariables(tree_: H.Tree, fv: Set[Name]): Set[Name] = {
+    def freeVariables_(tree: H.Tree, fv: Set[Name]): Set[Name] = tree match {
+      case H.LetP(n, p, v, e) => 
+        freeVariables_(e, fv) - n + 
+    }
+  }*/
+  def freeVariables(tree: H.Tree): Set[Symbol] = {
+    def atomAsFV(atom: H.Atom): Set[Symbol] = atom match {
+      case H.AtomN(name) => Set(name)
+      case _ => Set()
+    }
+    tree match {
+      case H.LetP(n, p, v, e) => freeVariables(e) ++ v.flatMap(atomAsFV) - n
+      case H.LetC(cs, e) => freeVariables(e) ++ cs.flatMap{ case H.Cnt(_, args, body) => freeVariables(body) -- args.toSet }
+      case H.LetF(fs, e) => 
+        val funFv = fs.flatMap{ case H.Fun(name, _, args, body) => freeVariables(body) -- args.toSet}
+        freeVariables(e) ++ funFv -- fs.map(_.name).toSet
+      case H.AppC(_, atoms) => atoms.flatMap(atomAsFV).toSet
+      case H.AppF(v, c, vs) => atomAsFV(v) ++ vs.flatMap(atomAsFV)
+      case H.If(_, v, _, _) => v.flatMap(atomAsFV).toSet
+      case H.Halt(atom) => atomAsFV(atom)
+      case atom: H.Atom => atomAsFV(atom)
+    }
+  }
+
 
   /* 
     Tree Transformation 
