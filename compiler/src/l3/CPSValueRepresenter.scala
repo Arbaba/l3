@@ -78,9 +78,9 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
   def closure(letf: H.LetF): L.Tree = {
     //Close fv calls with environment access
     def blockGet(f: Symbol, env: Symbol , fv: Seq[(Symbol, Int)], ctx: Map[Symbol, Symbol], body: L.Tree): (L.Tree, Map[Symbol,Symbol]) =   fv match {
-       case Seq((symbol, idx),tail) => 
+       case Seq((symbol, idx),tail@_*) => 
         val v = Symbol.fresh("v")
-        val (letbody, ctxAcc) = blockGet(f, env, fv, ctx + (symbol ->v), body)
+        val (letbody, ctxAcc) = blockGet(f, env, tail, ctx + (symbol ->v), body)
         (letp(v, CPSBlockGet, Seq(L.AtomN(env), L.AtomL(idx)), letbody) , ctxAcc)
         case Seq() => 
          (substitute(body)(ctx), ctx)
