@@ -56,7 +56,6 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       case H.AppF(v, c, vs) => atomAsFV(v) ++ vs.flatMap(atomAsFV)
       case H.If(_, v, _, _) => v.flatMap(atomAsFV).toSet
       case H.Halt(atom) => atomAsFV(atom)
-      case atom: H.Atom => atomAsFV(atom)
     }
   }
   def substitute(tree: L.Tree)(implicit ctx: Map[Symbol, Symbol]): L.Tree = {
@@ -143,7 +142,13 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     */
     case letf@H.LetF(functions, body) => closure(letf)
 
-    case H.AppF(fun, retC, args) => L.AppF(apply_(fun), retC, args.map(apply_))
+    case H.AppF(fun, retC, args) => {
+      val f = Symbol.fresh("f")
+      val v = apply_(fun)
+      L.LetP(f, CPSBlockGet, Seq(v, L.AtomL(0)),
+        L.AppF(L.AtomN(f), retC, Seq(v) ++ args.map(apply_))
+      )
+    }
     //Arithmetic primitives
     case H.LetP(name, L3IntAdd, atoms@Seq(_, _), body) => 
       letpFresh(CPSAdd, atoms.map(apply_)){
