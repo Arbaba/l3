@@ -61,7 +61,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
   def substitute(tree: L.Tree)(implicit ctx: Map[Symbol, Symbol]): L.Tree = {
       def subst(atom: L.Atom): L.Atom = atom match {
         case L.AtomL(_) => atom
-        case L.AtomN(n) => L.AtomN(ctx(n))
+        case L.AtomN(n) => L.AtomN(ctx.getOrElse(n,n))
       }  
       tree match  {
         case L.LetP(n, p, v, e) => L.LetP(n, p, v.map{a => subst(a)}, substitute(e))
@@ -74,6 +74,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
         case L.Halt(atom) => L.Halt(subst(atom))
         //case atom: L.Atom => subst(atom)  
       }
+  
   }
   def closure(letf: H.LetF): L.Tree = {
     //Close fv calls with environment access
@@ -83,39 +84,48 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
         val (letbody, ctxAcc) = blockGet(f, env, tail, ctx + (symbol ->v), body)
         (letp(v, CPSBlockGet, Seq(L.AtomN(env), L.AtomL(idx)), letbody) , ctxAcc)
         case Seq() => 
+ 
          (substitute(body)(ctx), ctx)
     }
     //Closure initialization
     def blockSet(f: Symbol, fv: Seq[(Symbol, Int)], body: L.Tree): L.Tree =   fv match {
-      case Seq((symbol, idx),tail) => 
+      case Seq((symbol, idx),tail@_*) => 
         letpFresh(CPSBlockSet, Seq(L.AtomN(f),L.AtomL(idx), L.AtomN(symbol))){_ => blockSet(f, fv.tail, body)}
       case Seq() => 
         body
     }
-    //Returns the closed function with FVs mapping
-    def close(fun: H.Fun): (L.Fun, (Symbol, Seq[Symbol])) = {
+    //Returns the closed function with FVs mapping and worker symbol
+    def close(fun: H.Fun): (L.Fun, (Symbol, Seq[Symbol]), Symbol) = {
       val w1 = Symbol.fresh("w")
       val env1 = Symbol.fresh("env")
       val fv = freeVariables(fun.body).toSeq
       val fvzipped = fv.zip(1 to fv.size)
       val (body, ctx) =  blockGet(fun.name, env1, fvzipped, Map(fun.name -> env1), apply(fun.body))
-      (L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, body ), (fun.name, ctx.keys.toSeq))
+      (L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, body ), (fun.name,ctx.keys.toSeq), w1)
     }
     /*
      * ctx : Sequence of (functions name, fv in the function)
      * */
-    def createClosures(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree): L.Tree = {
+    def createClosures(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree, ws: Seq[Symbol]): L.Tree = {
       def recHelper(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree) = ctxs match {
-      case Seq() => 
-        apply(body)
-      case Seq((fi , fvs), otherFVs@_*) =>  
-        blockSet(fi, fvs.zip(0 to fvs.length), createClosures(otherFVs, body))
+        case Seq() => 
+          apply(body)
+        case Seq((fi , fvs), otherFVs@_*) =>  
+          blockSet(fi, fvs.zip(1 to fvs.length), createClosures(otherFVs, body, ws.tail))
       }
-      val (fi, fvs) = ctxs.head
-     letp(fi, CPSBlockAlloc(202), Seq(L.AtomL(fvs.length+1)), recHelper(ctxs.tail, body))
+      ctxs match {
+        case Seq(head, tail@_*) => 
+          val (fi, fvs) = ctxs.head
+          letp(fi, CPSBlockAlloc(202), Seq(L.AtomL(fvs.length+1)), 
+              letpFresh(CPSBlockSet, Seq(L.AtomN(fi), L.AtomL(0),L.AtomN(ws.head))){_ => recHelper(ctxs, body)})
+        case Seq() => 
+          apply(body)
+      }
+    
     }
-    val (closedfs, ctxs) = letf.funs.map(close).unzip
-    L.LetF(closedfs, createClosures(ctxs, letf.body))
+    val (closedfs,  ctxs, ws) = letf.funs.map(close).unzip3
+    L.LetF(closedfs, createClosures(ctxs, letf.body, ws))
+  
 
   }
 
