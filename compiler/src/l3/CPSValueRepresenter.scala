@@ -58,14 +58,19 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       case H.Halt(atom) => atomAsFV(atom)
     }
   }
+  def freeVariablesFun(fun: H.Fun): Set[Symbol] = freeVariables(fun.body) -- Set(fun.name) -- fun.args.toSet
+
   def substitute(tree: L.Tree)(implicit ctx: Map[Symbol, Symbol]): L.Tree = {
       def subst(atom: L.Atom): L.Atom = atom match {
         case L.AtomL(_) => atom
         case L.AtomN(n) => L.AtomN(ctx.getOrElse(n,n))
       }  
+      def substCnt(c: L.Cnt) = c match {
+        case L.Cnt(name, args, e) => L.Cnt(name, args, substitute(e))
+      }
       tree match  {
         case L.LetP(n, p, v, e) => L.LetP(n, p, v.map{a => subst(a)}, substitute(e))
-        case L.LetC(cs, e) => L.LetC(cs, substitute(e))
+        case L.LetC(cs, e) => L.LetC(cs.map(substCnt), substitute(e))
         case L.LetF(fs, e) => L.LetF(fs, substitute(e))
         
         case L.AppC(c, atoms) => L.AppC(c, atoms.map{a => subst(a)}) 
@@ -82,11 +87,13 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
        case Seq((symbol, idx),tail@_*) => 
         val v = Symbol.fresh("v")
         val (letbody, ctxAcc) = blockGet(f, env, tail, ctx + (symbol ->v), body)
-        (letp(v, CPSBlockGet, Seq(L.AtomN(env), L.AtomL(idx)), letbody) , ctxAcc)
+      
+        (letp(v, CPSBlockGet, Seq(L.AtomN(env), L.AtomL(idx)), substitute(letbody)(ctxAcc) ), ctxAcc)
         case Seq() => 
- 
+  
          (substitute(body)(ctx), ctx)
     }
+
     //Closure initialization
     def blockSet(f: Symbol, fv: Seq[(Symbol, Int)], body: L.Tree): L.Tree =   fv match {
       case Seq((symbol, idx),tail@_*) => 
@@ -94,37 +101,57 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
       case Seq() => 
         body
     }
-    //Returns the closed function with FVs mapping and worker symbol
+
+    //Returns the closed function with FVs mapping and worker symbol for the blocksets
     def close(fun: H.Fun): (L.Fun, (Symbol, Seq[Symbol]), Symbol) = {
       val w1 = Symbol.fresh("w")
       val env1 = Symbol.fresh("env")
-      val fv = freeVariables(fun.body).toSeq
+      val fv = freeVariablesFun(fun).toSeq
       val fvzipped = fv.zip(1 to fv.size)
       val (body, ctx) =  blockGet(fun.name, env1, fvzipped, Map(fun.name -> env1), apply(fun.body))
-      (L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, body ), (fun.name,ctx.keys.toSeq), w1)
+      val funFV = Set(fun.name) ++ fun.args.toSet
+      val removArgs = ctx.filter{case (freeName , newName) => !funFV.contains(freeName)}
+      (L.Fun(w1, fun.retC, Seq(env1) ++ fun.args, body ), (fun.name,removArgs.keys.toSeq), w1)
     }
     /*
-     * ctx : Sequence of (functions name, fv in the function)
+     * Initialize closures blocks
+     * @param ctxs Sequence of zipped closured name and corresponding free variables
+     * @param body The closure body
+     * @param ws   The closure worker symobol
+     * @return     The nested tree of blocksets followed by the body
      * */
-    def createClosures(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree, ws: Seq[Symbol]): L.Tree = {
+    def initClosures(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree, ws: Seq[Symbol]): L.Tree = {
       def recHelper(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree) = ctxs match {
         case Seq() => 
           apply(body)
         case Seq((fi , fvs), otherFVs@_*) =>  
-          blockSet(fi, fvs.zip(1 to fvs.length), createClosures(otherFVs, body, ws.tail))
+          blockSet(fi, fvs.zip(1 to fvs.length), initClosures(otherFVs, body, ws.tail))
       }
       ctxs match {
         case Seq(head, tail@_*) => 
           val (fi, fvs) = ctxs.head
-          letp(fi, CPSBlockAlloc(202), Seq(L.AtomL(fvs.length+1)), 
-              letpFresh(CPSBlockSet, Seq(L.AtomN(fi), L.AtomL(0),L.AtomN(ws.head))){_ => recHelper(ctxs, body)})
+              letpFresh(CPSBlockSet, Seq(L.AtomN(fi), L.AtomL(0),L.AtomN(ws.head))){_ => recHelper(ctxs, body)}
         case Seq() => 
           apply(body)
       }
     
     }
+    /*
+     * Allocates and initializes closures blocks
+     * @param closuresInfo Sequence of zipped closured name and block size
+     * @param body The expression to evaluate after the closures allocation
+     * @return Tree of closures followed by the body
+     * */
+    def createClosures(closuresInfo: Seq[(Symbol, Int)], body: L.Tree): L.Tree = closuresInfo match {
+      case Seq() => 
+        body
+      case Seq((fname, blockSize), others@_*) => 
+        letp(fname, CPSBlockAlloc(202), Seq(L.AtomL(blockSize)), createClosures(others, body))
+
+    }
     val (closedfs,  ctxs, ws) = letf.funs.map(close).unzip3
-    L.LetF(closedfs, createClosures(ctxs, letf.body, ws))
+    val closuresInfo = ctxs.map{case (name, fvs) => (name, fvs.size + 1)}
+    L.LetF(closedfs, createClosures(closuresInfo, initClosures(ctxs, letf.body, ws)))
   
 
   }
