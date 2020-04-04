@@ -204,32 +204,66 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
   private[this] implicit def l3IntToLit(i: L3Int): Literal = IntLit(i)
   private[this] implicit def intToLit(i: Int): Literal = IntLit(L3Int(i))
 
-  protected val impure: ValuePrimitive => Boolean = ???
+  protected val impure: ValuePrimitive => Boolean = Set(L3ByteRead, L3ByteWrite, L3BlockSet)
 
-  protected val unstable: ValuePrimitive => Boolean = ???
+  protected val unstable: ValuePrimitive => Boolean = {
+    case L3BlockAlloc(_) | L3BlockGet | L3ByteRead => true
+    case _ => false
+  }
 
-  protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal] = ???
-  protected val blockTag: ValuePrimitive = ???
-  protected val blockLength: ValuePrimitive = ???
+  protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal] = {
+    case L3BlockAlloc(tag) => tag
+  }
+  protected val blockTag: ValuePrimitive = L3BlockTag
+  protected val blockLength: ValuePrimitive = L3BlockLength
 
-  protected val identity: ValuePrimitive = ???
+  protected val identity: ValuePrimitive = L3Id
+  private def int(x: Int) = IntLit(L3Int(x))
+  protected val leftNeutral: Set[(Literal, ValuePrimitive)] = 
+    Set((int(0), L3IntAdd), (int(1), L3IntMul), (int(0), L3IntBitwiseOr), (int(0), L3IntBitwiseXOr), (int(~0), L3IntBitwiseAnd))
+  protected val rightNeutral: Set[(ValuePrimitive, Literal)] = 
+      Set((L3IntAdd, int(0)), (L3IntSub, int(0)), (L3IntMul, int(1)), (L3IntDiv, int(1)),
+        (L3IntShiftLeft, int(0)), (L3IntShiftRight, int(0)),
+        (L3IntBitwiseAnd, int(~0)), (L3IntBitwiseOr, int(0)), (L3IntBitwiseXOr, int(0)))
 
-  protected val leftNeutral: Set[(Literal, ValuePrimitive)] = ???
-  protected val rightNeutral: Set[(ValuePrimitive, Literal)] = ???
+  protected val leftAbsorbing: Set[(Literal, ValuePrimitive)] = 
+      Set((int(0), L3IntMul), (int(0), L3IntDiv),
+        (int(0), L3IntShiftLeft), (int(0), L3IntShiftRight),
+        (int(0), L3IntBitwiseAnd), (int(~0), L3IntBitwiseOr))
+  protected val rightAbsorbing: Set[(ValuePrimitive, Literal)] =    
+    Set((L3IntMul, int(0)), (L3IntBitwiseAnd, int(0)), (L3IntBitwiseOr, int(~0)))
+  protected val sameArgReduce: PartialFunction[(ValuePrimitive, Atom), Atom] = {
+    case (L3IntBitwiseAnd | L3IntBitwiseOr, a) => a
+    case (L3IntSub | L3IntMod | L3IntBitwiseXOr, _) => AtomL(int(0))
+    case (L3IntDiv, _) => AtomL(int(1))
+  }
 
-  protected val leftAbsorbing: Set[(Literal, ValuePrimitive)] = ???
-  protected val rightAbsorbing: Set[(ValuePrimitive, Literal)] = ???
-
-  protected val sameArgReduce: PartialFunction[(ValuePrimitive, Atom), Atom] =
-    ???
-
-  protected val sameArgReduceC: PartialFunction[TestPrimitive, Boolean] = ???
+  protected val sameArgReduceC: PartialFunction[TestPrimitive, Boolean] = {
+    case L3IntLe | L3Eq => true
+    case L3IntLt => false
+  }
 
   protected val vEvaluator: PartialFunction[(ValuePrimitive, Seq[Literal]),
-                                            Literal] = ???
+                                            Literal] = {
+    case (L3IntAdd, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x + y
+    case (L3IntSub, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x - y
+    case (L3IntMul, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x * y
+    case (L3IntDiv, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) if y.toInt != 0 => x / y
+    case (L3IntMod, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) if y.toInt != 0 => x % y
+
+    case (L3IntShiftLeft,  Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x << y
+    case (L3IntShiftRight, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x >> y
+    case (L3IntBitwiseAnd, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x & y
+    case (L3IntBitwiseOr,  Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x | y
+    case (L3IntBitwiseXOr, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x ^ y
+  }
 
   protected val cEvaluator: PartialFunction[(TestPrimitive, Seq[Literal]),
-                                            Boolean] = ???
+                                            Boolean] = {
+    case (L3IntLt, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x < y
+    case (L3IntLe, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x <= y
+    case (L3Eq, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x == y
+  }
 }
 
 object CPSOptimizerLow extends CPSOptimizer(SymbolicCPSTreeModuleLow)
