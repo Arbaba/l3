@@ -60,7 +60,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
   }
   def freeVariablesFun(fun: H.Fun): Set[Symbol] = freeVariables(fun.body) -- Set(fun.name) -- fun.args.toSet
 
-  def substitute(tree: L.Tree)(implicit ctx: Map[Symbol, Symbol]): L.Tree = {
+  def substitute(tree: L.Tree)(implicit ctx: Subst[Symbol]): L.Tree = {
       def subst(atom: L.Atom): L.Atom = atom match {
         case L.AtomL(_) => atom
         case L.AtomN(n) => L.AtomN(ctx.getOrElse(n,n))
@@ -83,7 +83,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
   }
   def closure(letf: H.LetF): L.Tree = {
     //Close fv calls with environment access
-    def blockGet(f: Symbol, env: Symbol , fv: Seq[(Symbol, Int)], ctx: Map[Symbol, Symbol], body: L.Tree): (L.Tree, Map[Symbol,Symbol]) =   fv match {
+    def blockGet(f: Symbol, env: Symbol , fv: Seq[(Symbol, Int)], ctx: Subst[Symbol], body: L.Tree): (L.Tree, Subst[Symbol]) =   fv match {
        case Seq((symbol, idx),tail@_*) => 
         val v = Symbol.fresh("v")
         val (letbody, ctxAcc) = blockGet(f, env, tail, ctx + (symbol ->v), body)
