@@ -35,12 +35,6 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
 
   }
 
-  /*def freeVariables(tree_: H.Tree, fv: Set[Name]): Set[Name] = {
-    def freeVariables_(tree: H.Tree, fv: Set[Name]): Set[Name] = tree match {
-      case H.LetP(n, p, v, e) => 
-        freeVariables_(e, fv) - n + 
-    }
-  }*/
   def freeVariables(tree: H.Tree): Set[Symbol] = {
     def atomAsFV(atom: H.Atom): Set[Symbol] = atom match {
       case H.AtomN(name) => Set(name)
@@ -77,10 +71,10 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
         case L.AppF(v, c, vs) => L.AppF(subst(v), c, vs.map(subst))
         case L.If(a, v, b, c) => L.If(a, v.map(subst), b,c) 
         case L.Halt(atom) => L.Halt(subst(atom))
-        //case atom: L.Atom => subst(atom)  
       }
   
   }
+  //Simple closure conversion
   def closure(letf: H.LetF): L.Tree = {
     //Close fv calls with environment access
     def blockGet(f: Symbol, env: Symbol , fv: Seq[(Symbol, Int)], ctx: Subst[Symbol], body: L.Tree): (L.Tree, Subst[Symbol]) =   fv match {
@@ -117,7 +111,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
      * Initialize closures blocks
      * @param ctxs Sequence of zipped closured name and corresponding free variables
      * @param body The closure body
-     * @param ws   The closure worker symobol
+     * @param ws   The closures workers symobol
      * @return     The nested tree of blocksets followed by the body
      * */
     def initClosures(ctxs: Seq[(Symbol, Seq[Symbol])], body: H.Tree, ws: Seq[Symbol]): L.Tree = {
@@ -138,7 +132,7 @@ object CPSValueRepresenter extends (H.Tree => L.Tree) {
     }
     /*
      * Allocates and initializes closures blocks
-     * @param closuresInfo Sequence of zipped closured name and block size
+     * @param closuresInfo Sequence of zipped closures name and block size
      * @param body The expression to evaluate after the closures allocation
      * @return Tree of closures followed by the body
      * */
