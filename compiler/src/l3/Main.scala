@@ -11,12 +11,14 @@ import CPSTreeChecker._   // Implicits required for CPS tree checking
 
 object Main {
   def main(args: Array[String]): Unit = {
+    val stats = new Statistics()
     val backEnd: Tree => TerminalPhaseResult = (
       CL3ToCPSTranslator
-        andThen treePrinter("---------- After translation to CPS")
-        andThen treeChecker
-        andThen CPSValueRepresenter
-        andThen CPSInterpreterLowNoCC
+      andThen CPSOptimizerHigh
+      andThen CPSValueRepresenter
+      andThen CPSHoister
+      andThen CPSOptimizerLow
+      andThen (new CPSInterpreterLow(stats.log _))
     )
 
     val basePath = Paths.get(".").toAbsolutePath

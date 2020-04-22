@@ -55,7 +55,27 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   private def shrink(tree: Tree): Tree =
     shrink(tree, State(census(tree)))
 
-  private def shrink(tree: Tree, s: State): Tree = ???
+  def shrinkPrimitive(letp: LetP, literals: Seq[Literal], s: State): Tree = letp match {
+    case LetP(name, prim, args, body) if literals.size == args.size && vEvaluator.isDefinedAt((prim, literals)) =>
+      val v = vEvaluator((prim, literals))
+      shrink(body, s.withASubst(name, v))
+    //Common sub expression elimination
+    case LetP(name, prim, args, body) if s.eInvEnv.contains((prim, args)) =>
+      val replacement = s.eInvEnv((prim, args))
+      shrink(body, s.withASubst(name, replacement))
+    case LetP(name, prim, args, body) => 
+      LetP(name, prim, args, shrink(body, s.withExp(name, prim, args)))
+  }
+
+  private def shrink(tree: Tree, s: State): Tree = tree match {
+    //Dead code elimination
+    //case x@LetP(name, prim, args, body) if impure(prim) => shrink(body, s)
+    //Constant folding
+
+    case letp@LetP(_, _, args, _) => shrinkPrimitive(letp, args.flatMap(_.asLiteral), s)
+    //  LetP(name, )
+    case subtree => subtree
+  }
 
   // (Non-shrinking) inlining
 
@@ -218,7 +238,7 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
   protected val blockLength: ValuePrimitive = L3BlockLength
 
   protected val identity: ValuePrimitive = L3Id
-  private def int(x: Int) = IntLit(L3Int(x))
+  private def int(x: Int) = intToLit(x)
   protected val leftNeutral: Set[(Literal, ValuePrimitive)] = 
     Set((int(0), L3IntAdd), (int(1), L3IntMul), (int(0), L3IntBitwiseOr), (int(0), L3IntBitwiseXOr), (int(~0), L3IntBitwiseAnd))
   protected val rightNeutral: Set[(ValuePrimitive, Literal)] = 
