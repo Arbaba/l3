@@ -18,6 +18,7 @@ object Main {
       andThen CPSValueRepresenter
       andThen CPSHoister
       andThen CPSOptimizerLow
+      andThen treePrinter("after opti")
       andThen (new CPSInterpreterLow(stats.log _))
     )
 
@@ -29,6 +30,7 @@ object Main {
       .flatMap(backEnd) match {
       case Right((retCode, maybeMsg)) =>
         maybeMsg foreach println
+        println(stats)
         sys.exit(retCode)
       case Left(errMsg) =>
         println(s"Error: $errMsg")

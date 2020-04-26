@@ -131,11 +131,38 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       def sameLen[T,U](formalArgs: Seq[T], actualArgs: Seq[U]): Boolean =
         formalArgs.length == actualArgs.length
 
-      def inlineT(tree: Tree)(implicit s: State): Tree = ???
+      def inlineT(tree: Tree)(implicit s: State): Tree = tree match {
+        case AppF(AtomN(fName), retC, args) if s.fEnv.contains(fName) => {
+          val fun = s.fEnv(fName)
+          inlineT(fun.body)(s.withASubst(fun.retC, AtomN(retC)).withASubst(fun.args, args))
+        }
+        case AppC(cName, args) if s.cEnv.contains(cName) => {
+          val cnt = s.cEnv(cName)
+          println("...inlining cnt...")
+          inlineT(cnt.body)
+        } 
+        case LetF(funs, body) => {
+          println(s"adding ${funs.map(_.name)}...")
+          LetF(funs, 
+            inlineT(body)(s.withFuns(funs))
+          )
+        }
+        case LetC(cnts, body) => LetC(cnts, inlineT(body)(s.withCnts(cnts)))
+        case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
+        case appf@AppF(AtomN(fName), _, _) => {
+          println(s"$fName not found in ${s.fEnv.keys}")
+          appf
+        }
+        case appc@AppC((cName), _) => {
+          println(s"$cName not found in ${s.cEnv.keys}")
+          appc
+        }
+        //Cnt and Fun are not inlined
+        case _ => tree
+      }
 
       (i + 1, fixedPoint(inlineT(tree)(State(census(tree))))(shrink))
     }
-
     trees.takeWhile{ case (_, tree) => size(tree) <= maxSize }.last._2
   }
 
