@@ -5,11 +5,11 @@ import scala.collection.mutable.{ Map => MutableMap }
 abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   (val treeModule: T) {
   import treeModule._
-
   protected def rewrite(tree: Tree): Tree = {
-    val simplifiedTree = fixedPoint(tree)(shrink)
+    shrink(tree)
+    /*val simplifiedTree = fixedPoint(tree)(shrink)
     val maxSize = size(simplifiedTree) * 3 / 2
-    fixedPoint(simplifiedTree, 8) { t => inline(t, maxSize) }
+    fixedPoint(simplifiedTree, 8) { t => inline(t, maxSize) }*/
   }
 
   private case class Count(applied: Int = 0, asValue: Int = 0)
@@ -18,7 +18,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     census: Map[Name, Count],
     aSubst: Subst[Atom] = emptySubst,
     cSubst: Subst[Name] = emptySubst,
-    eInvEnv: Map[(ValuePrimitive, Seq[Atom]), Atom] = Map.empty,
+    eInvEnv: Map[(ValuePrimitive, Seq[Atom]), Atom] = Map.empty, //Map from primitives and arguments to names -> for common sub expr elimination
     cEnv: Map[Name, Cnt] = Map.empty,
     fEnv: Map[Name, Fun] = Map.empty) {
 
@@ -48,6 +48,26 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       copy(cEnv = cEnv ++ (cnts.map(_.name) zip cnts))
     def withFuns(funs: Seq[Fun]): State =
       copy(fEnv = fEnv ++ (funs.map(_.name) zip funs))
+    def substitute(tree: Tree)(implicit ctx: Map[Atom, Atom]): Tree = {
+      def subst(atom: Atom): Atom = atom match {
+        case AtomL(_) => atom
+        case AtomN(n) => ctx.getOrElse(atom,atom)
+      }  
+      def substCnt(c: Cnt) = c match {
+        case Cnt(name, args, e) => Cnt(name, args, substitute(e))
+      }
+      tree match  {
+        case LetP(n, p, v, e) => LetP(n, p, v.map{a => subst(a)}, substitute(e))
+        case LetC(cs, e) => LetC(cs.map(substCnt), substitute(e))
+        case LetF(fs, e) => LetF(fs, substitute(e))
+        
+        case AppC(c, atoms) => AppC(c, atoms.map{a => subst(a)}) 
+        case AppF(v, c, vs) => AppF(subst(v), c, vs.map(subst))
+        case If(a, v, b, c) => If(a, v.map(subst), b,c) 
+        case Halt(atom) => Halt(subst(atom))
+        //case atom: Atom => subst(atom)  
+      }  
+    }
   }
 
   // Shrinking optimizations
@@ -55,26 +75,74 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   private def shrink(tree: Tree): Tree =
     shrink(tree, State(census(tree)))
 
-  def shrinkPrimitive(letp: LetP, literals: Seq[Literal], s: State): Tree = letp match {
-    case LetP(name, prim, args, body) if literals.size == args.size && vEvaluator.isDefinedAt((prim, literals)) =>
-      val v = vEvaluator((prim, literals))
-      shrink(body, s.withASubst(name, v))
-    //Common sub expression elimination
-    case LetP(name, prim, args, body) if s.eInvEnv.contains((prim, args)) =>
-      val replacement = s.eInvEnv((prim, args))
-      shrink(body, s.withASubst(name, replacement))
-    case LetP(name, prim, args, body) => 
-      LetP(name, prim, args, shrink(body, s.withExp(name, prim, args)))
-  }
-
-  private def shrink(tree: Tree, s: State): Tree = tree match {
-    //Dead code elimination
-    //case x@LetP(name, prim, args, body) if impure(prim) => shrink(body, s)
-    //Constant folding
-
-    case letp@LetP(_, _, args, _) => shrinkPrimitive(letp, args.flatMap(_.asLiteral), s)
-    //  LetP(name, )
-    case subtree => subtree
+  private def shrink(tree: Tree, s: State): Tree = {
+    def toLits(a: Seq[Atom]) = a.flatMap(_.asLiteral)
+      //println(tree)
+      (tree) match {
+          /** Constant folding **/
+          case LetP(name, prim, lits@Seq(AtomL(l1), AtomL(l2)), body) 
+            if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
+            //constant folding arithmetic
+            val cf = (vEvaluator)((prim, toLits(lits)))
+            val fold = s.substitute(body)(Map(AtomN(name) -> AtomL(cf)))
+            shrink(fold, s)
+          case LetP(name, prim, lits@Seq(v1, v2), body) 
+            if v1 == v2 && sameArgReduce.isDefinedAt((prim,v1))  =>
+              //constant folding equal arithmetic values or variables
+              val result = (sameArgReduce)((prim, v1))
+              val fold = s.substitute(body)(Map(AtomN(name) -> result))
+              shrink(fold, s)
+          case If(cond,  Seq(v1, v2), ct, cf)  
+            if v1 == v2  =>
+              //constant folding equal boolean values 
+              if(sameArgReduceC(cond)){
+                AppC(ct, Seq())
+              }else {
+                AppC(cf, Seq())
+              }
+          case If(cond,  lits@Seq(AtomL(l1), AtomL(l2)), ct, cf) 
+            if cEvaluator.isDefinedAt((cond, toLits(lits)))  =>
+              //constant folding boolean literals 
+              if((cEvaluator)((cond,  toLits(lits)))){
+                AppC(ct, Seq())
+              }else {
+                AppC(cf, Seq())
+              }
+          /* Neutral and absorbing elements */
+          case LetP(name, prim, lits@Seq(AtomL(v1),v2), body) 
+            if leftNeutral.contains((v1, prim)) => 
+              shrink(s.substitute(body)(Map(AtomN(name) -> v2)), s)
+         case LetP(name, prim, lits@Seq(v1,AtomL(v2)), body) 
+            if rightNeutral.contains((prim, v2)) => 
+              shrink(s.substitute(body)(Map(AtomN(name) -> v1)), s)
+         case LetP(name, prim, lits@Seq(a1@AtomL(v1),_), body) 
+            if leftAbsorbing.contains((v1, prim)) => 
+              shrink(s.substitute(body)(Map(AtomN(name) -> a1)), s)
+         case LetP(name, prim, lits@Seq(_,a2@AtomL(v2)), body) 
+            if rightAbsorbing.contains((prim,v2)) => 
+              shrink(s.substitute(body)(Map(AtomN(name) -> a2)), s)
+         case LetP(name, this.identity, Seq(v), body) =>
+            shrink(s.substitute(body)(Map(AtomN(name) -> v)), s)
+              
+          /* Common subexpression elimination */
+          case LetP(name, prim, args, body)   =>
+            //common subexpression elimination
+            val n1 = s.eInvEnv.get((prim, args))
+            val cse = n1 match {
+              case Some(n) => 
+                shrink(s.substitute(body)(Map(AtomN(name) -> n)), s)
+              case None =>
+                val state = if(impure(prim)) s else s.withExp(name, prim, args)
+                LetP(name, prim, args, shrink(body, state))
+            }
+            cse
+          /* Dead code elimination */
+          
+          case _ => 
+            tree
+            
+      
+    }
   }
 
   // (Non-shrinking) inlining
@@ -265,24 +333,24 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
 
   protected val vEvaluator: PartialFunction[(ValuePrimitive, Seq[Literal]),
                                             Literal] = {
-    case (L3IntAdd, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x + y
-    case (L3IntSub, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x - y
-    case (L3IntMul, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x * y
-    case (L3IntDiv, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) if y.toInt != 0 => x / y
-    case (L3IntMod, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) if y.toInt != 0 => x % y
+    case (L3IntAdd, Seq(IntLit(x), IntLit(y))) => x + y
+    case (L3IntSub, Seq(IntLit(x), IntLit(y))) => x - y
+    case (L3IntMul, Seq(IntLit(x), IntLit(y))) => x * y
+    case (L3IntDiv, Seq(IntLit(x), IntLit(y))) if y.toInt != 0 => x / y
+    case (L3IntMod, Seq(IntLit(x), IntLit(y))) if y.toInt != 0 => x % y
 
-    case (L3IntShiftLeft,  Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x << y
-    case (L3IntShiftRight, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x >> y
-    case (L3IntBitwiseAnd, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x & y
-    case (L3IntBitwiseOr,  Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x | y
-    case (L3IntBitwiseXOr, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x ^ y
+    case (L3IntShiftLeft,  Seq(IntLit(x), IntLit(y))) => x << y
+    case (L3IntShiftRight, Seq(IntLit(x), IntLit(y))) => x >> y
+    case (L3IntBitwiseAnd, Seq(IntLit(x), IntLit(y))) => x & y
+    case (L3IntBitwiseOr,  Seq(IntLit(x), IntLit(y))) => x | y
+    case (L3IntBitwiseXOr, Seq(IntLit(x), IntLit(y))) => x ^ y
   }
 
   protected val cEvaluator: PartialFunction[(TestPrimitive, Seq[Literal]),
                                             Boolean] = {
-    case (L3IntLt, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x < y
-    case (L3IntLe, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x <= y
-    case (L3Eq, Seq(IntLit(L3Int(x)), IntLit(L3Int(y)))) => x == y
+    case (L3IntLt, Seq(IntLit(x), IntLit(y))) => x < y
+    case (L3IntLe, Seq(IntLit(x), IntLit(y))) => x <= y
+    case (L3Eq, Seq(IntLit(x), IntLit(y))) => x == y
   }
 }
 
