@@ -14,6 +14,8 @@ object Main {
     val stats = new Statistics()
     val backEnd: Tree => TerminalPhaseResult = (
       CL3ToCPSTranslator
+        andThen treePrinter("---------- After translation to CPS")
+        andThen treeChecker
       andThen CPSOptimizerHigh
       andThen treePrinter("=============================high=============================")
       andThen CPSValueRepresenter
@@ -22,17 +24,19 @@ object Main {
       andThen treePrinter("===========================after opti===========================")
       andThen (new CPSInterpreterLow(stats.log _))
     )
-
     val basePath = Paths.get(".").toAbsolutePath
     Either.cond(! args.isEmpty, args.toIndexedSeq, "no input file given")
       .flatMap(L3FileReader.readFilesExpandingModules(basePath, _))
       .flatMap(p => L3Parser.parse(p._1, p._2))
       .flatMap(CL3NameAnalyzer)
       .flatMap(backEnd) match {
-      case Right((retCode, maybeMsg)) =>
+      /*case Right((retCode, maybeMsg)) =>
         maybeMsg foreach println
-        println(stats)
-        sys.exit(retCode)
+        sys.exit(retCode)*/
+        case Right((retCode, maybeMsg)) =>
+          maybeMsg foreach println
+          println(stats) // add this to print statistics
+          sys.exit(retCode)
       case Left(errMsg) =>
         println(s"Error: $errMsg")
         sys.exit(1)
