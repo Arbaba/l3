@@ -15,10 +15,11 @@ object Main {
     val backEnd: Tree => TerminalPhaseResult = (
       CL3ToCPSTranslator
       andThen CPSOptimizerHigh
+      andThen treePrinter("=============================high=============================")
       andThen CPSValueRepresenter
       andThen CPSHoister
       andThen CPSOptimizerLow
-      andThen treePrinter("after opti")
+      andThen treePrinter("===========================after opti===========================")
       andThen (new CPSInterpreterLow(stats.log _))
     )
 

@@ -72,7 +72,21 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     //case x@LetP(name, prim, args, body) if impure(prim) => shrink(body, s)
     //Constant folding
 
-    case letp@LetP(_, _, args, _) => shrinkPrimitive(letp, args.flatMap(_.asLiteral), s)
+    /*case letp@LetP(_, _, args, _) => {
+      println("shrinking prim")
+      shrinkPrimitive(letp, args.flatMap(_.asLiteral), s)
+    }*/
+    case LetC(cnts, body) => LetC(cnts, shrink(body, s.withCnts(cnts)))
+    case LetF(funs, body) => LetF(funs, shrink(body, s.withFuns(funs)))
+    case appf@AppF(AtomN(f), ret, args) => s.fEnv.get(f) match {
+      case Some(Fun(n, r, a, b)) => 
+        println("inlining...")
+        appf
+      case None => {
+        println(s"not found in ${s.fEnv.keys} [$f]")
+        appf
+      }
+    }
     //  LetP(name, )
     case subtree => subtree
   }
@@ -150,11 +164,11 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case LetC(cnts, body) => LetC(cnts, inlineT(body)(s.withCnts(cnts)))
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case appf@AppF(AtomN(fName), _, _) => {
-          println(s"$fName not found in ${s.fEnv.keys}")
+          println(s"appf $fName not found in ${s.fEnv.keys}")
           appf
         }
         case appc@AppC((cName), _) => {
-          println(s"$cName not found in ${s.cEnv.keys}")
+          println(s"appc $cName not found in ${s.cEnv.keys}")
           appc
         }
         //Cnt and Fun are not inlined
