@@ -59,7 +59,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       tree match  {
         case LetP(n, p, v, e) => LetP(n, p, v.map{a => subst(a)}, substitute(e))
         case LetC(cs, e) => LetC(cs.map(substCnt), substitute(e))
-        case LetF(fs, e) => LetF(fs, substitute(e))
+        case LetF(fs, e) => LetF(fs.map{case Fun(name, retC, args, body) =>  Fun(name, retC, args, substitute(body))}, substitute(e))
         
         case AppC(c, atoms) => AppC(c, atoms.map{a => subst(a)}) 
         case AppF(v, c, vs) => AppF(subst(v), c, vs.map(subst))
@@ -119,14 +119,15 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     }
   }*/
       (tree) match {
-         //case LetP(name, this.identity, Seq(v), body) =>
-         //   shrink(s.substitute(body)(Map(AtomN(name) -> v)), s)
+         case LetP(name, this.identity, Seq(v), body) =>
+            shrink(s.substitute(body)(Map(AtomN(name) -> v)), s)
           /* Dead code elimination */
           case LetP(name, prim, args, body)
             if !impure(prim) && s.dead(name) => 
               shrink(body,s)
           case LetF(funs, body) 
             if funs.filter{case Fun(name,_,_,_) => s.dead(name)}.size > 0 =>
+              println("mmm")
               LetF(funs.filter{case Fun(name, _,_,_) => !s.dead(name)}, body) 
           case LetC(cnts, body) 
             if cnts.filter{case Cnt(name,_,_) => s.dead(name)}.size > 0 =>
@@ -189,8 +190,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case LetC(cnts, body) =>
             LetC(cnts.map{case Cnt(name, args, b) => Cnt(name, args, shrink(b, s))}, shrink(body, s))
           case LetF(fns, body) => 
-              //FIXME: setting shrink(body, s) as new body breaks test prim-block-alloc.l3
-              LetF(fns.map{case Fun(name, retC, args, b) => Fun(name, retC,args, shrink(b, s))}, body)
+              LetF(fns.map{case Fun(name, retC, args, b) => Fun(name, retC,args, shrink(b, s))}, shrink(body, s))
           
           case _ => 
             //println("reet")
