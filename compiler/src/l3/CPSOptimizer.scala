@@ -77,7 +77,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   }
 
   // Shrinking optimizations
-
+  
   private def shrink(tree: Tree): Tree ={
     println(s"shrinking $tree...")
     val res = shrink(tree, State(census(tree)))
@@ -87,7 +87,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   private def shrink(tree: Tree, s: State): Tree = {
     def toLits(a: Seq[Atom]) = a.flatMap(_.asLiteral) 
       
-      println(s"[processing]> $tree with ${s.fEnv.keys}"); (tree) match {
+      println(s"[processing]> $tree with fenv=${s.fEnv.keys} cenv=${s.cSubst.keys} aenv=${s.aSubst.keys}"); (tree) match {
         case halt@Halt(at@AtomN(name)) => (s.cSubst.get(name), s.aSubst.get(at)) match {
           case (Some(otherName), None) => Halt(AtomN(otherName))
           case (None, Some(otherAtom)) => Halt(otherAtom)
@@ -135,7 +135,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case appf@AppF(fun@AtomN(fName), retC, args) => s.fEnv.get(fName) match {
           case Some(inlinable@Fun(inName, inRet, inArgs, inBody)) => {
             println(s"inlining $fName")
-            shrink(inBody, s.withASubst(inArgs, args).withCSubst(inName, fName).withCSubst(inRet, retC))
+            shrink(inBody, s.withASubst(inArgs, args).withCSubst(inRet, retC))
           }
             
           case None => {
