@@ -14,14 +14,11 @@ object Main {
     val stats = new Statistics()
     val backEnd: Tree => TerminalPhaseResult = (
       CL3ToCPSTranslator
-        andThen treePrinter("---------- After translation to CPS")
-        andThen treeChecker
       andThen CPSOptimizerHigh
-      andThen treePrinter("=============================high=============================")
+      andThen treePrinter("==================final==================")
       andThen CPSValueRepresenter
       andThen CPSHoister
       andThen CPSOptimizerLow
-      andThen treePrinter("===========================after opti===========================")
       andThen (new CPSInterpreterLow(stats.log _))
     )
     val basePath = Paths.get(".").toAbsolutePath
