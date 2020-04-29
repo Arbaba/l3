@@ -167,7 +167,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           val (untouchedCnts, inlinedCnts) = cnts.partition(c => !s.appliedOnce(c.name))
           val fixedCnts = untouchedCnts.map{
             case Cnt(name, args, body) => 
-              println(s"shrinking $name")
+              //println(s"shrinking $name")
               Cnt(name, args, shrink(body, s))
           }
           val newState = s.withCnts(inlinedCnts)
@@ -184,7 +184,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case appc@AppC(cnt, args) => s.cEnv.get(cnt) match {
           case Some(inlinedCnt@Cnt(name, currentArgs, body)) => {
             val newArgs = args.map((arg: Atom) => s.sub(arg))
-            println(s"changed args $args -> $newArgs")
+            //println(s"changed args $args -> $newArgs")
             val newState = s.withASubst(currentArgs, newArgs)
             debug(s"inlining cnt $name in $cnt")
             shrink(body, newState)
@@ -323,7 +323,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
               }
             }*/
           case _ => {
-            println("dead end")
+            //println("dead end")
             tree
           }
             //println("reet")
@@ -502,7 +502,7 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
 
   def apply(tree: Tree): Tree =
     rewrite(tree)
-  def debug(s: String) = println("["+Console.BLUE+"DEBUG"+Console.WHITE+"] "+s)
+  def debug(s: String) = {}//println("["+Console.BLUE+"DEBUG"+Console.WHITE+"] "+s)
   import scala.language.implicitConversions
   private[this] implicit def l3IntToLit(i: L3Int): Literal = IntLit(i)
   private[this] implicit def intToLit(i: Int): Literal = IntLit(L3Int(i))
