@@ -134,7 +134,12 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           val (unchangedFuns, inlinedFuns) = funs.partition(f => !s.appliedOnce(f.name))
           
           val newState = s.withFuns(inlinedFuns)
-          debug(s"inlined ${inlinedFuns.size} funs in ${funs.map(_.name)}: ${funs.map(f => (f.name, s.census(f.name)))}; newState ${newState.fEnv.keys}")
+          val updatedFuns = unchangedFuns.map{
+            case Fun(name, rc, args, body) =>
+              //TODO this should be shrink without free variables
+              Fun(name, rc, args, shrink(body, s))
+          }
+          //debug(s"inlined ${inlinedFuns.size} funs in ${funs.map(_.name)}: ${funs.map(f => (f.name, s.census(f.name)))}; newState ${newState.fEnv.keys}")
           LetF(unchangedFuns, shrink(body, newState))
         }
         case LetC(cnts, body) => {
