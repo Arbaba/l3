@@ -52,7 +52,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     def sub(atom: Atom): Atom = atom match {
       case AtomN(name) =>
         val tmp = aSubst.getOrElse(atom, AtomN(cSubst.getOrElse(name, name)))
-        println(s"$name -> $tmp")
+        debug(s"$name -> $tmp")
         tmp
       case _ => atom
     }
@@ -97,9 +97,13 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
 
     def toLits(a: Seq[Atom]) = a.flatMap(_.asLiteral)
     letp match {
+      /* Dead letp */
+      case LetP(name, prim, args, body)
+          if !impure(prim) && s.dead(name) => 
+              shrink(body,s)
+      /*  constant folding arithmetic */
       case LetP(name, prim, lits@Seq(AtomL(l1), AtomL(l2)), body) 
           if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
-          //constant folding arithmetic
           val cf = (vEvaluator)((prim, toLits(lits)))
           val newState = s.withASubst(name, cf)
           debug(s"constant folding $name -> $cf $newState")
@@ -114,11 +118,37 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           debug(s"substituting $name for $atom; ")
           shrink(body, newState)
         }
-      case letp@LetP(name, prim, args, body) => {
-        val updatedArgs = args.map(arg => s.sub(arg))
-        debug(s" before $args after $updatedArgs")
-        LetP(name, prim, updatedArgs, shrink(body, s))
-      }
+      /* Neutral and absorbing elements */
+      case LetP(name, prim, lits@Seq(AtomL(v1),v2), body) 
+        if leftNeutral.contains((v1, prim)) => 
+          debug(s"leftNeutral - before $name after $v2")
+          shrink(body, s.withASubst(name, v2))
+      case LetP(name, prim, lits@Seq(v1,AtomL(v2)), body) 
+        if rightNeutral.contains((prim, v2)) => 
+          debug(s"rightNeutral - before $name after $v1")
+          shrink(body, s.withASubst(name, v1))
+      case LetP(name, prim, lits@Seq(a1@AtomL(v1),_), body) 
+        if leftAbsorbing.contains((v1, prim)) => 
+          debug(s"leftAbsorbing - before $name after $a1")
+          shrink(body, s.withASubst(name, a1))
+      case LetP(name, prim, lits@Seq(_,a2@AtomL(v2)), body) 
+        if rightAbsorbing.contains((prim,v2)) => 
+          debug(s"rightAbsorbing - before $name after $a2")
+          shrink(body, s.withASubst(name, a2))
+      case LetP(name, prim, args, body)   =>
+          val updatedArgs = args.map(arg => s.sub(arg))
+          s.eInvEnv.get((prim, updatedArgs)) match {
+            case Some(n1) =>
+              debug(s"apply cse on $n1 $prim $updatedArgs result $n1")
+              shrink(body, s.withASubst(name, n1))
+            case None => 
+              val state = if(impure(prim) || unstable(prim)) s else s.withExp(name, prim, updatedArgs)
+              debug(s" before $args after $updatedArgs; eInvenv ${s.eInvEnv}")
+              LetP(name, prim, updatedArgs, shrink(body, state))
+
+          }
+ 
+        
     }
   }
   private def shrink(tree: Tree, s: State): Tree = {
@@ -130,6 +160,13 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case (None, Some(otherAtom)) => Halt(otherAtom)
           case _ => halt
         }
+        case halt@Halt(AtomL(v)) => halt
+        case LetF(funs, body) 
+          if funs.filter{case Fun(name,_,_,_) => s.dead(name)}.size > 0 =>
+            shrink(LetF(funs.filter{case Fun(name, _,_,_) => !s.dead(name)}, body), s)
+        case LetC(cnts, body) 
+          if cnts.filter{case Cnt(name,_,_) => s.dead(name)}.size > 0 =>
+            shrink(LetC(cnts.filter{case Cnt(name, _,_) => !s.dead(name)}, body), s) 
         case LetF(funs, body) => {
           val (unchangedFuns, inlinedFuns) = funs.partition(f => !s.appliedOnce(f.name))
           
@@ -141,13 +178,14 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           val (untouchedCnts, inlinedCnts) = cnts.partition(c => !s.appliedOnce(c.name))
           val fixedCnts = untouchedCnts.map{
             case Cnt(name, args, body) => 
-              println(s"shrinking $name")
+              debug(s"shrinking $name")
               Cnt(name, args, shrink(body, s))
           }
           val newState = s.withCnts(inlinedCnts)
           debug(s"inlined ${inlinedCnts.size} cnts: $inlinedCnts; new State ${newState.cEnv.keys}")
           LetC(fixedCnts, shrink(body, newState))
         }
+        
         case appc@AppC(cnt, args) if s.cSubst.contains(cnt) => {
           val newName = s.cSubst(cnt)
           debug(s"replacing $cnt with ${newName}")
@@ -262,13 +300,16 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
               
           /* Common subexpression elimination */
           /*case LetP(name, prim, args, body)   =>
+              shrink(s.substitute(body)(Map(AtomN(name) -> a2)), s)         
+          /* Common subexpression elimination and basic LetP */
+          case LetP(name, prim, args, body)   =>
             //common subexpression elimination
             val n1 = s.eInvEnv.get((prim, args))
             val cse = n1 match {
               case Some(n) => 
                 shrink(s.substitute(body)(Map(AtomN(name) -> n)), s)
               case None =>
-                val state = if(impure(prim)) s else s.withExp(name, prim, args)
+                val state = if(impure(prim) || unstable(prim)) s else s.withExp(name, prim, args)
                 LetP(name, prim, args, shrink(body, state))
             }
             cse*/
@@ -303,9 +344,17 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
                 appf
               }
             }*/
+            //cse
+          /* Other basic cases 
+          case LetC(cnts, body) =>
+            LetC(cnts.map{case Cnt(name, args, b) => Cnt(name, args, shrink(b, s))}, shrink(body, s))
+          case LetF(fns, body) => 
+              LetF(fns.map{case Fun(name, retC, args, b) => Fun(name, retC,args, shrink(b, s))}, shrink(body, s))
+          
           case _ => 
+            //println("reet")
             tree
-            
+            */
       
     }
   }

@@ -39,10 +39,10 @@ trait ExamplesTests {
 
   val tests = Tests {
     // Note: sudoku is too slow to be included here
-    test("bignums") { testExpectedOutput }
+    /*test("bignums") { testExpectedOutput }
     test("maze") { testExpectedOutput }
     test("queens") { testExpectedOutput }
-    test("unimaze") { testExpectedOutput }
+    test("unimaze") { testExpectedOutput }*/
   }
 }
 
