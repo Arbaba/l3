@@ -69,6 +69,26 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       }  
     }
   }
+    // Free variables computation
+    def freeVariables(tree: Tree): Set[Symbol] = {
+    def atomAsFV(atom: Atom): Set[Symbol] = atom match {
+      case AtomN(name) => Set(name)
+      case _ => Set()
+    }
+    tree match {
+      case LetP(n, p, v, e) => freeVariables(e) ++ v.flatMap(atomAsFV) - n
+      case LetC(cs, e) => freeVariables(e) ++ cs.flatMap{ case Cnt(_, args, body) => freeVariables(body) -- args.toSet }
+      case LetF(fs, e) => 
+        val funFv = fs.flatMap{ case Fun(name, _, args, body) => freeVariables(body) -- args.toSet}
+        freeVariables(e) ++ funFv -- fs.map(_.name).toSet
+      case AppC(_, atoms) => atoms.flatMap(atomAsFV).toSet
+      case AppF(v, c, vs) => atomAsFV(v) ++ vs.flatMap(atomAsFV)
+      case If(_, v, _, _) => v.flatMap(atomAsFV).toSet
+      case Halt(atom) => atomAsFV(atom)
+    }
+  }
+  def freeVariablesFun(fun: Fun): Set[Symbol] = freeVariables(fun.body) -- Set(fun.name) -- fun.args.toSet
+  def freeVariablesCnt(cnt: Cnt): Set[Symbol] = freeVariables(cnt.body) -- Set(cnt.name) -- cnt.args.toSet
 
   // Shrinking optimizations
 
@@ -77,8 +97,40 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
 
   private def shrink(tree: Tree, s: State): Tree = {
     def toLits(a: Seq[Atom]) = a.flatMap(_.asLiteral)
-      //println(tree)
+/*    def keptFunctions(funs: Seq[Fun], body:Tree) = {
+      funs.filter{
+              case f@Fun(name,_,_,_) => funs.foldLeft( freeVariables(body).contains(name))((z,otherf) =>
+                if(f.name != otherf.name) 
+                  z || (freeVariablesFun(otherf).contains(name) )
+                else 
+                  true
+                )
+            }
+    }
+
+    def keptContinuations(cnts: Seq[Cnt], body:Tree) = {
+       cnts.filter{
+              case f@Cnt(name,_,_) => cnts.foldLeft(freeVariables(body).contains(name))((z,otherf) =>
+                if(f.name != otherf.name) 
+                  z || (freeVariablesCnt(otherf).contains(name) )
+                else 
+                  true
+                )
+    }
+  }*/
       (tree) match {
+         //case LetP(name, this.identity, Seq(v), body) =>
+         //   shrink(s.substitute(body)(Map(AtomN(name) -> v)), s)
+          /* Dead code elimination */
+          case LetP(name, prim, args, body)
+            if !impure(prim) && s.dead(name) => 
+              shrink(body,s)
+          case LetF(funs, body) 
+            if funs.filter{case Fun(name,_,_,_) => s.dead(name)}.size > 0 =>
+              LetF(funs.filter{case Fun(name, _,_,_) => !s.dead(name)}, body) 
+          case LetC(cnts, body) 
+            if cnts.filter{case Cnt(name,_,_) => s.dead(name)}.size > 0 =>
+              LetC(cnts.filter{case Cnt(name, _,_) => !s.dead(name)}, body) 
           /** Constant folding **/
           case LetP(name, prim, lits@Seq(AtomL(l1), AtomL(l2)), body) 
             if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
@@ -120,11 +172,8 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
               shrink(s.substitute(body)(Map(AtomN(name) -> a1)), s)
          case LetP(name, prim, lits@Seq(_,a2@AtomL(v2)), body) 
             if rightAbsorbing.contains((prim,v2)) => 
-              shrink(s.substitute(body)(Map(AtomN(name) -> a2)), s)
-         case LetP(name, this.identity, Seq(v), body) =>
-            shrink(s.substitute(body)(Map(AtomN(name) -> v)), s)
-              
-          /* Common subexpression elimination */
+              shrink(s.substitute(body)(Map(AtomN(name) -> a2)), s)         
+          /* Common subexpression elimination and basic LetP */
           case LetP(name, prim, args, body)   =>
             //common subexpression elimination
             val n1 = s.eInvEnv.get((prim, args))
@@ -132,13 +181,19 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
               case Some(n) => 
                 shrink(s.substitute(body)(Map(AtomN(name) -> n)), s)
               case None =>
-                val state = if(impure(prim)) s else s.withExp(name, prim, args)
+                val state = if(impure(prim) || unstable(prim)) s else s.withExp(name, prim, args)
                 LetP(name, prim, args, shrink(body, state))
             }
             cse
-          /* Dead code elimination */
+          /* Other basic cases */ 
+          case LetC(cnts, body) =>
+            LetC(cnts.map{case Cnt(name, args, b) => Cnt(name, args, shrink(b, s))}, shrink(body, s))
+          case LetF(fns, body) => 
+              //FIXME: setting shrink(body, s) as new body breaks test prim-block-alloc.l3
+              LetF(fns.map{case Fun(name, retC, args, b) => Fun(name, retC,args, shrink(b, s))}, body)
           
           case _ => 
+            //println("reet")
             tree
             
       
