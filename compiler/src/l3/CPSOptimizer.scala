@@ -13,6 +13,8 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
 
   private case class Count(applied: Int = 0, asValue: Int = 0)
 
+  def debug(s: String): Unit 
+
   private case class State(
     census: Map[Name, Count],
     aSubst: Subst[Atom] = emptySubst,
@@ -47,12 +49,19 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       copy(cEnv = cEnv ++ (cnts.map(_.name) zip cnts))
     def withFuns(funs: Seq[Fun]): State =
       copy(fEnv = fEnv ++ (funs.map(_.name) zip funs))
+    def sub(atom: Atom): Atom = atom match {
+      case AtomN(name) =>
+        val tmp = aSubst.getOrElse(atom, AtomN(cSubst.getOrElse(name, name)))
+        println(s"$name -> $tmp")
+        tmp
+      case _ => atom
+    }
     def substitute(tree: Tree)(implicit ctx: Map[Atom, Atom]): Tree = {
       def subst(atom: Atom): Atom = atom match {
         case AtomL(_) => atom
         case AtomN(n) => {
           val tmp = ctx.getOrElse(atom,atom)
-          println(s"substituting $atom with $tmp")
+          debug(s"substituting $atom with $tmp")
           tmp
         }
       }  
@@ -75,103 +84,122 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       }  
     }
   }
-
+  
   // Shrinking optimizations
   
   private def shrink(tree: Tree): Tree ={
-    println(s"shrinking $tree...")
+    debug(s"shrinking $tree...")
     val res = shrink(tree, State(census(tree)))
-    println(s"[RESULT] $res")
+    debug(s"[RESULT] $res")
     res
-}
+  }
+  private def shrinkLetP(letp: LetP, s: State): Tree = {
+
+    def toLits(a: Seq[Atom]) = a.flatMap(_.asLiteral)
+    letp match {
+      case LetP(name, prim, lits@Seq(AtomL(l1), AtomL(l2)), body) 
+          if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
+          //constant folding arithmetic
+          val cf = (vEvaluator)((prim, toLits(lits)))
+          val newState = s.withASubst(name, cf)
+          debug(s"constant folding $name -> $cf $newState")
+          shrink(body, newState)
+      case LetP(name, this.identity, Seq(AtomN(sameName)), body) => {
+        val newState = s.withCSubst(name, sameName)
+          debug(s"substituting $name for $sameName; env: ${newState.fEnv.keys} ${s.cSubst.keySet} ${s.aSubst.keySet}")
+          shrink(body, newState)
+        }
+      case LetP(name, this.identity, Seq(atom: Atom), body) => {
+        val newState = s.withASubst(AtomN(name), atom)
+          debug(s"substituting $name for $atom; ")
+          shrink(body, newState)
+        }
+      case letp@LetP(name, prim, args, body) => {
+        val updatedArgs = args.map(arg => s.sub(arg))
+        debug(s" before $args after $updatedArgs")
+        LetP(name, prim, updatedArgs, shrink(body, s))
+      }
+    }
+  }
   private def shrink(tree: Tree, s: State): Tree = {
     def toLits(a: Seq[Atom]) = a.flatMap(_.asLiteral) 
       
-      println(s"[processing]> $tree with fenv=${s.fEnv.keys} cenv=${s.cSubst.keys} aenv=${s.aSubst.keys}"); (tree) match {
+      debug(s"[processing]> $tree with fenv=${s.fEnv.keys} cenv=${s.cSubst.keys} aenv=${s.aSubst.keys}"); (tree) match {
         case halt@Halt(at@AtomN(name)) => (s.cSubst.get(name), s.aSubst.get(at)) match {
           case (Some(otherName), None) => Halt(AtomN(otherName))
           case (None, Some(otherAtom)) => Halt(otherAtom)
           case _ => halt
         }
         case LetF(funs, body) => {
-          val (unchangedFuns, inlinedFuns) = funs.partition(f => s.appliedOnce(f.name))
+          val (unchangedFuns, inlinedFuns) = funs.partition(f => !s.appliedOnce(f.name))
           
           val newState = s.withFuns(inlinedFuns)
-          println(s"inlined ${inlinedFuns.size} funs: $inlinedFuns; newState ${newState.fEnv.keys}")
+          debug(s"inlined ${inlinedFuns.size} funs in ${funs.map(_.name)}: ${funs.map(f => (f.name, s.census(f.name)))}; newState ${newState.fEnv.keys}")
           LetF(unchangedFuns, shrink(body, newState))
         }
         case LetC(cnts, body) => {
-          val (untouchedCnts, inlinedCnts) = cnts.partition(c => s.appliedOnce(c.name))
+          val (untouchedCnts, inlinedCnts) = cnts.partition(c => !s.appliedOnce(c.name))
+          val fixedCnts = untouchedCnts.map{
+            case Cnt(name, args, body) => 
+              println(s"shrinking $name")
+              Cnt(name, args, shrink(body, s))
+          }
           val newState = s.withCnts(inlinedCnts)
-          println(s"inlined ${inlinedCnts.size} cnts: $inlinedCnts; new State ${newState.cEnv.keys}")
-          LetC(untouchedCnts, shrink(body, newState))
+          debug(s"inlined ${inlinedCnts.size} cnts: $inlinedCnts; new State ${newState.cEnv.keys}")
+          LetC(fixedCnts, shrink(body, newState))
         }
         case appc@AppC(cnt, args) if s.cSubst.contains(cnt) => {
           val newName = s.cSubst(cnt)
-          println(s"replacing $cnt with ${newName}")
+          debug(s"replacing $cnt with ${newName}")
           shrink(AppC(newName, args), s) 
         } 
+        //continuation inlining
         case appc@AppC(cnt, args) => s.cEnv.get(cnt) match {
           case Some(inlinedCnt@Cnt(name, currentArgs, body)) => {
             val newState = s.withASubst(currentArgs, args)
-            println(s"inlining cnt $name in $cnt")
+            debug(s"inlining cnt $name in $cnt")
             shrink(body, newState)
           }
           case None => {
-            println(s"didn0t sub $cnt in ${s.cSubst.keys} ${s.aSubst.keys}")
+            debug(s"didn0t sub $cnt in ${s.cSubst.keys} ${s.aSubst.keys}")
             appc
           }
         }
+        //check for substitutions to do
         case appf@AppF(fun@AtomN(fName), retC, args) if s.aSubst.contains(fun) => {
           val newName = s.aSubst(fun)
-          println(s"replacing $fName with $newName")
+          debug(s"replacing $fName with $newName")
           shrink(AppF(newName, retC, args), s)
         }
         case appf@AppF(fun@AtomN(fName), retC, args) if s.cSubst.contains(fName) => {
           val newName = s.cSubst(fName)
-          println(s"replacing $fName with $newName")
+          debug(s"replacing $fName with $newName")
           shrink(AppF(AtomN(newName), retC, args), s)
         }
         case appf@AppF(fun@AtomN(fName), retC, args) => s.fEnv.get(fName) match {
           case Some(inlinable@Fun(inName, inRet, inArgs, inBody)) => {
-            println(s"inlining $fName")
+            debug(s"inlining $fName")
             shrink(inBody, s.withASubst(inArgs, args).withCSubst(inRet, retC))
           }
             
           case None => {
-            println(s"$fName not inlined; env is ${s.fEnv.keys} ${s.aSubst.keys} ${s.cSubst.keys}")
+            debug(s"$fName not inlined; env is ${s.fEnv.keys} ${s.aSubst.keys} ${s.cSubst.keys}")
             appf
           }
         }
-        case LetP(name, prim, lits@Seq(AtomL(l1), AtomL(l2)), body) 
-            if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
-            println("constant folding")
-            //constant folding arithmetic
-            val cf = (vEvaluator)((prim, toLits(lits)))
-            shrink(body, s.withASubst(name, cf))
-        case LetP(name, this.identity, Seq(AtomN(sameName)), body) => {
-          val newState = s.withCSubst(name, sameName)
-           println(s"substituting $name for $sameName; env: ${newState.fEnv.keys}")
-           shrink(body, newState)
-         }
-        case letp@LetP(name, prim, args, body) => {
-          val updatedArgs = args.map(arg => s.aSubst.getOrElse(arg, arg))
-          println(s"$tree before $args after $updatedArgs")
-          LetP(name, prim, updatedArgs, shrink(body, s))
-        }
-        case LetC(cnts, body) => {
-          LetC(cnts, shrink(body, s))
-        }
+        case LetP(name, prim, args, body) =>
+          shrinkLetP(LetP(name, prim, args.map(s.sub), body), s)
+        
         //name substitution
         case If(_, args, ct, cf) if s.cSubst.keys.toSet.contains(Set(ct, cf)) => {
           val newState = s
-          println(s"substituting if")
+          debug(s"substituting if")
           tree//shrink(If(args, ct, cf), s)
         }
         case If(cond,  lits@Seq(AtomL(l1), AtomL(l2)), ct, cf) 
             if cEvaluator.isDefinedAt((cond, toLits(lits)))  => {
               //constant folding boolean literals 
-              println(s"constant folding")
+              debug(s"constant folding")
               if((cEvaluator)((cond,  toLits(lits)))){
                 shrink(AppC(ct, Seq()), s)
               }else {
@@ -181,7 +209,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
               
         case If(cond,  Seq(v1, v2), ct, cf)  
           if v1 == v2  => {
-            println(s"constant folding..")
+            debug(s"constant folding..")
             if(sameArgReduceC(cond)){
               shrink(AppC(ct, Seq()), s)
             }else {
@@ -189,7 +217,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
             }
          }   
         case i@If(_, args, ct, cf) => {
-          println(s"couldnt find $ct $cf in ${s.cSubst.keys} ${s.aSubst.keys}")
+          debug(s"couldnt find $ct $cf in ${s.cSubst.keys} ${s.aSubst.keys}")
           i
         }
         //constant folding equal boolean values 
@@ -225,9 +253,9 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
             if rightAbsorbing.contains((prim,v2)) => 
               shrink(s.substitute(body)(Map(AtomN(name) -> a2)), s.withASubst(name, a2))*/
          /*case LetP(name, this.identity, Seq(v), body) => {
-           println(s"substituting $name $v")
+           debug(s"substituting $name $v")
            val tmp = s.substitute(body)(Map(AtomN(name) -> v))
-           println(s"[TEST] $tmp")
+           debug(s"[TEST] $tmp")
            shrink(tmp, s)
          }*/
             
@@ -246,16 +274,16 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
             cse*/
           /* Dead code elimination */
           /*case LetC(cnts, body) => {
-            println(s"letc ${cnts.filter(c => s.appliedOnce(c.name)).size}")
+            debug(s"letc ${cnts.filter(c => s.appliedOnce(c.name)).size}")
             LetC(cnts, shrink(body))
           }
           case LetF(funs, body) => {
-            println(s"letf ${funs.filter(f => s.appliedOnce(f.name)).size}")
+            debug(s"letf ${funs.filter(f => s.appliedOnce(f.name)).size}")
             LetF(funs.filter(f => !s.appliedOnce(f.name)), shrink(body))
           }
           case appf@AppF(fun@AtomN(fName), retC, args) => s.fEnv.get(fName) match {
             case Some(Fun(name, rC, as, body)) => {
-              println(s"shrinking inlining")
+              debug(s"shrinking inlining")
               val m: Map[Atom, Atom] = as.map(AtomN).zip(args).toMap
               s.substitute(body)(m + (AtomN(rC) -> AtomN(retC)))
             }
@@ -263,15 +291,15 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           }*/
               //case LetC(cnts, body) => LetC(cnts, shrink(body, s.withCnts(cnts)))
           /*case LetF(funs, body) => {
-            println(s"shrinking ${funs.map(_.name)}")
+            debug(s"shrinking ${funs.map(_.name)}")
             LetF(funs, shrink(body))
           }*/
             /*case appf@AppF(AtomN(f), ret, args) => s.fEnv.get(f) match {
               case Some(Fun(n, r, a, b)) => 
-                println("inlining...")
+                debug("inlining...")
                 tree
               case None => {
-                println(s"not found in ${s.fEnv.keys} [$f]")
+                debug(s"not found in ${s.fEnv.keys} [$f]")
                 appf
               }
             }*/
@@ -343,11 +371,11 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         }
         case AppC(cName, args) if s.cEnv.contains(cName) => {
           val cnt = s.cEnv(cName)
-          println("...inlining cnt...")
+          debug("...inlining cnt...")
           inlineT(cnt.body)
         } 
         case LetF(funs, body) => {
-          //println(s"adding ${funs.map(_.name)}...")
+          //debug(s"adding ${funs.map(_.name)}...")
           LetF(funs, 
             inlineT(body)(s.withFuns(funs))
           )
@@ -355,11 +383,11 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case LetC(cnts, body) => LetC(cnts, inlineT(body)(s.withCnts(cnts)))
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case appf@AppF(AtomN(fName), _, _) => {
-          //println(s"appf $fName not found in ${s.fEnv.keys}")
+          //debug(s"appf $fName not found in ${s.fEnv.keys}")
           appf
         }
         case appc@AppC((cName), _) => {
-          //println(s"appc $cName not found in ${s.cEnv.keys}")
+          //debug(s"appc $cName not found in ${s.cEnv.keys}")
           appc
         }*/
         //Cnt and Fun are not inlined
@@ -451,7 +479,7 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
 
   def apply(tree: Tree): Tree =
     rewrite(tree)
-
+  def debug(s: String) = println("["+Console.BLUE+"DEBUG"+Console.WHITE+"] "+s)
   import scala.language.implicitConversions
   private[this] implicit def l3IntToLit(i: L3Int): Literal = IntLit(i)
   private[this] implicit def intToLit(i: Int): Literal = IntLit(L3Int(i))
@@ -526,7 +554,7 @@ object CPSOptimizerLow extends CPSOptimizer(SymbolicCPSTreeModuleLow)
     case tree @ LetF(_, _) => tree
     case other => LetF(Seq(), other)
   }
-
+  def debug(s: String) = {}
   protected val impure: ValuePrimitive => Boolean =
     Set(CPSBlockSet, CPSByteRead, CPSByteWrite)
 
