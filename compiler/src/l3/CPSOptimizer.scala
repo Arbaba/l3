@@ -239,7 +239,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           val updatedFuns = unchangedFuns.filter(f => !s.dead(f.name)).map{
             case Fun(name, rc, args, body) =>
               //TODO this should be shrink without free variables
-              Fun(name, rc, args, shrink(body, s))
+              Fun(name, rc, args, shrink(body, newState))
           }
           debug(s"eliminated ${unchangedFuns.size - updatedFuns.size} dead functions ${unchangedFuns.map(_.name).toSet.diff(updatedFuns.map(_.name).toSet)}")
           //debug(s"inlined ${inlinedFuns.size} funs in ${funs.map(_.name)}: ${funs.map(f => (f.name, s.census(f.name)))}; newState ${newState.fEnv.keys}")
