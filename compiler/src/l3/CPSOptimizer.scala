@@ -85,6 +85,9 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   private def shrinkLetP(letp: LetP, s: State): Tree = {
     letp match {
       /* Dead letp */
+      case LetP(name, this.byteWrite, arg, body) => {
+        LetP(name, this.byteWrite, arg, shrink(body, s.withASubst(name, literal(0))))
+      }
       case LetP(name, prim, args, body)
           if !impure(prim) && s.dead(name) => 
               shrink(body,s)
@@ -94,14 +97,12 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           val cf = (vEvaluator)((prim, toLits(lits)))
           val newState = s.withASubst(name, cf)
           shrink(body, newState)
-      case LetP(name, this.identity, Seq(AtomN(sameName)), body) => {
-        val newState = s.withCSubst(name, sameName)
-          shrink(body, newState)
-        }
+      case LetP(name, this.identity, Seq(AtomN(sameName)), body) => 
+          shrink(body, s.withCSubst(name, sameName))
       case LetP(name, this.identity, Seq(atom: Atom), body) => {
         val newState = s.withASubst(AtomN(name), atom)
-          shrink(body, newState)
-        }
+        shrink(body, newState)
+      }
             /* Neutral and absorbing elements */
       case LetP(name, prim, lits@Seq(AtomL(v1),v2), body) 
         if leftNeutral.contains((v1, prim)) => 
@@ -123,16 +124,13 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
             case None => 
               val state = if(impure(prim) || unstable(prim)) s else s.withExp(name, prim, updatedArgs)
               LetP(name, prim, updatedArgs, shrink(body, state))
-
           }
       case letp@LetP(name, prim, args, body) => {
         val updatedArgs = args.map(arg => s.sub(arg))
         LetP(name, prim, updatedArgs, shrink(body, s))
       }
 
-      case LetP(name, prim, args, body)
-        if !impure(prim) && s.dead(name) => 
-          shrink(body,s)
+
     }
   }
   def shrinkAppF(af: Tree, s: State): Tree = af match {
@@ -148,10 +146,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       case Some(inlinable@Fun(inName, inRet, inArgs, inBody)) => {
         shrink(inBody, s.withASubst(inArgs, args).withCSubst(inRet, retC))
       }
-        
-      case None => {
-        appf
-      }
+      case None => appf
     }
   }
   def shrinkAppC(ac: AppC, s: State): Tree = ac match {
@@ -168,9 +163,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         val newState = s.withASubst(currentArgs, newArgs)
         shrink(body, newState)
       }
-      case None => {
-        appc
-      }
+      case None => appc
     }
   }
   def shrinkIf(ifNode: If, s: State): Tree = ifNode match {
@@ -192,9 +185,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           shrink(AppC(cf, Seq()), s)
         }
       }   
-    case i@If(_, args, ct, cf) => {
-      i
-    }
+    case _ => ifNode
   }
   private def shrink(tree: Tree, s: State): Tree = {
       (tree) match {
@@ -203,35 +194,28 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case (None, Some(otherAtom)) => Halt(otherAtom)
           case _ => halt
         }
-        case halt@Halt(AtomL(v)) => halt
-        //case LetC(cnts, body) 
-        //  if cnts.filter{case Cnt(name,_,_) => s.dead(name)}.size > 0 =>
-        //    shrink(LetC(cnts.filter{case Cnt(name, _,_) => !s.dead(name)}, body), s) 
         case LetF(funs, body) => {
-          val (unchangedFuns, inlinedFuns) = funs.partition(f => !s.appliedOnce(f.name))
+          val updatedFuns: Seq[Fun] = funs.filter(f => !s.dead(f.name)).map{
+            case Fun(name, rc, args, body) =>
+              Fun(name, rc, args, shrink(body, s))
+          }
+          val (unchangedFuns, inlinedFuns) = updatedFuns.partition(f => !s.appliedOnce(f.name))
           
           val newState = s.withFuns(inlinedFuns)
-          val updatedFuns = unchangedFuns.filter(f => !s.dead(f.name)).map{
-            case Fun(name, rc, args, body) =>
-              //TODO this should be shrink without free variables
-              Fun(name, rc, args, shrink(body, newState))
-          }
-          //debug(s"inlined ${inlinedFuns.size} funs in ${funs.map(_.name)}: ${funs.map(f => (f.name, s.census(f.name)))}; newState ${newState.fEnv.keys}")
-          if (updatedFuns.size > 0) 
-            LetF(updatedFuns, shrink(body, newState))
+          if (unchangedFuns.size > 0) 
+            LetF(unchangedFuns, shrink(body, newState))
           else 
             shrink(body, newState)
         }
         case LetC(cnts, body) => {
-          val (untouchedCnts, inlinedCnts) = cnts.partition(c => !s.appliedOnce(c.name))
-          val fixedCnts = untouchedCnts.filter(cnt => !s.dead(cnt.name)).map{
+          val fixedCnts = cnts.filter(cnt => !s.dead(cnt.name)).map{
             case Cnt(name, args, body) => 
-              //println(s"shrinking $name")
               Cnt(name, args, shrink(body, s))
           }
+          val (untouchedCnts, inlinedCnts) = fixedCnts.partition(c => !s.appliedOnce(c.name))
           val newState = s.withCnts(inlinedCnts)
-          if (fixedCnts.size > 0)
-            LetC(fixedCnts, shrink(body, newState))
+          if (untouchedCnts.size > 0)
+            LetC(untouchedCnts, shrink(body, newState))
           else
             shrink(body, newState)
         }
@@ -252,6 +236,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           val newArgs = args.map(arg => s.sub(arg))
           shrinkIf(If(prim, newArgs, ct, cf), s)
         }
+        case _ => tree
     }
   }
 
@@ -308,7 +293,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
 
       def sameLen[T,U](formalArgs: Seq[T], actualArgs: Seq[U]): Boolean =
         formalArgs.length == actualArgs.length
-
+        
       def inlineT(tree: Tree)(implicit s: State): Tree = tree match {
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
@@ -416,9 +401,9 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal]
   protected val blockTag: ValuePrimitive
   protected val blockLength: ValuePrimitive
-
+  protected val byteWrite: ValuePrimitive
   protected val identity: ValuePrimitive
-
+  protected def literal(x: Int): AtomL
   protected val leftNeutral: Set[(Literal, ValuePrimitive)]
   protected val rightNeutral: Set[(ValuePrimitive, Literal)]
   protected val leftAbsorbing: Set[(Literal, ValuePrimitive)]
@@ -450,12 +435,13 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
     case L3BlockAlloc(_) | L3BlockGet | L3ByteRead => true
     case _ => false
   }
-
+  protected def literal(x :Int) = AtomL(intToLit(x)) 
   protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal] = {
     case L3BlockAlloc(tag) => tag
   }
   protected val blockTag: ValuePrimitive = L3BlockTag
   protected val blockLength: ValuePrimitive = L3BlockLength
+  protected val byteWrite: ValuePrimitive = L3ByteWrite
 
   protected val identity: ValuePrimitive = L3Id
   private def int(x: Int) = intToLit(x)
@@ -528,9 +514,9 @@ object CPSOptimizerLow extends CPSOptimizer(SymbolicCPSTreeModuleLow)
   }
   protected val blockTag: ValuePrimitive = CPSBlockTag
   protected val blockLength: ValuePrimitive = CPSBlockLength
-
+  protected val byteWrite: ValuePrimitive = CPSByteWrite
   protected val identity: ValuePrimitive = CPSId
-
+  protected def literal(x: Int): AtomL = AtomL(x << 1 + 1)
   protected val leftNeutral: Set[(Literal, ValuePrimitive)] =
     Set((0, CPSAdd), (1, CPSMul), (~0, CPSAnd), (0, CPSOr), (0, CPSXOr))
   protected val rightNeutral: Set[(ValuePrimitive, Literal)] =

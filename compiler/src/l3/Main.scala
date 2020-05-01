@@ -14,8 +14,8 @@ object Main {
     val stats = new Statistics()
     val backEnd: Tree => TerminalPhaseResult = (
       CL3ToCPSTranslator
-      andThen treePrinter("===========baseline===========")
       andThen CPSOptimizerHigh
+      andThen treePrinter("=================((((((((high opti))))))))=================")
       andThen CPSValueRepresenter
       andThen CPSHoister
       andThen CPSOptimizerLow
