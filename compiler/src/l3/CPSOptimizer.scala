@@ -420,14 +420,13 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
         case LetC(cnts, body) => {
-          val inlinedCnts = cnts.map{ 
+          val inlinedCnts = cnts.filter(cnt => size(cnt.body) < cntLimit).map{ 
             case Cnt(name, args, body) => Cnt(name, args, 
               inlineT(body)
             )
           }
           val newState = s.withCnts(inlinedCnts)
-          //if(inlinedCnts.size > 0) println(s"inlining cnts ${cnts.map(_.name)}")
-          LetC(inlinedCnts, inlineT(body)(newState))
+          LetC(cnts, inlineT(body)(newState))
         }
         case appc@AppC(cntName, args) => s.cEnv.get(cntName) match {
           case Some(Cnt(_, presentArgs, body)) => 
@@ -437,7 +436,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case None => appc
         }
         case LetF(funs, body) => {
-          val inlinedFuns = funs.map{
+          val inlinedFuns = funs.filter(fun => size(fun.body) < funLimit).map{
             case Fun(name, retc, args, body) => Fun(name, retc, args, 
               inlineT(body)
             )
