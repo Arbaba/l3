@@ -188,7 +188,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           shrink(AppC(cf, Seq()), s)
         }
     }
-
+    
    case If(cond,  Seq(AtomL(BooleanLit(v1)), AtomL(BooleanLit(v2))), ct, cf)  
      if sameArgReduceC(cond) => {
       inc("constant-folding")
@@ -320,7 +320,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         formalArgs.length == actualArgs.length
         
       def inlineT(tree: Tree)(implicit s: State): Tree = tree match {
-        case _ => tree
+        
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
         case LetC(cnts, body) => {
