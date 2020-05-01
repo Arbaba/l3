@@ -311,13 +311,14 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
         case LetC(cnts, body) => {
-          val inlinedCnts = cnts.filter(cnt => size(cnt.body) < cntLimit).map{ 
+          val fineCnts = cnts.map{ 
             case Cnt(name, args, body) => Cnt(name, args, 
               inlineT(body)
             )
           }
+          val inlinedCnts = fineCnts.filter(cnt => size(cnt.body) < cntLimit)
           val newState = s.withCnts(inlinedCnts)
-          LetC(cnts, inlineT(body)(newState))
+          LetC(fineCnts, inlineT(body)(newState))
         }
         case appc@AppC(cntName, args) => s.cEnv.get(cntName) match {
           case Some(Cnt(_, presentArgs, body)) => 
@@ -327,25 +328,21 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case None => appc
         }
         case LetF(funs, body) => {
-          val inlinedFuns = funs.filter(fun => size(fun.body) < funLimit).map{
+          val fineFuns = funs.map{
             case Fun(name, retc, args, body) => Fun(name, retc, args, 
               inlineT(body)
             )
           }
-          val newState = s.withFuns(funs)
-          //println(s"inlining ${funs.map(_.name)}")
-          LetF(funs, 
-            inlineT(body)(newState)
-          )
+          val inlinedFuns = fineFuns.filter(fun => size(fun.body) < funLimit)
+          val newState = s.withFuns(inlinedFuns)
+          LetF(fineFuns, inlineT(body)(newState))
         }
         case appf@AppF(AtomN(fName), expectedCnt, args) => s.fEnv.get(fName) match {
           case Some(Fun(_, retC, presentArgs, body)) => 
             val argsMapping: Subst[Atom] = presentArgs.map(AtomN).zip(args).toMap 
             val atomSubst = s.aSubst ++ argsMapping
             val nameSubst = s.cSubst + (retC -> expectedCnt)
-            val inlinedFun = copyT(body, atomSubst, nameSubst)
-            //println(s"inlined $fName")
-            inlinedFun
+            copyT(body, atomSubst, nameSubst)
           case None => appf
 
         }
