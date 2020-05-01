@@ -229,9 +229,9 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case _ => halt
         }
         case halt@Halt(AtomL(v)) => halt
-        case LetC(cnts, body) 
-          if cnts.filter{case Cnt(name,_,_) => s.dead(name)}.size > 0 =>
-            shrink(LetC(cnts.filter{case Cnt(name, _,_) => !s.dead(name)}, body), s) 
+        //case LetC(cnts, body) 
+        //  if cnts.filter{case Cnt(name,_,_) => s.dead(name)}.size > 0 =>
+        //    shrink(LetC(cnts.filter{case Cnt(name, _,_) => !s.dead(name)}, body), s) 
         case LetF(funs, body) => {
           val (unchangedFuns, inlinedFuns) = funs.partition(f => !s.appliedOnce(f.name))
           
@@ -243,18 +243,24 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           }
           debug(s"eliminated ${unchangedFuns.size - updatedFuns.size} dead functions ${unchangedFuns.map(_.name).toSet.diff(updatedFuns.map(_.name).toSet)}")
           //debug(s"inlined ${inlinedFuns.size} funs in ${funs.map(_.name)}: ${funs.map(f => (f.name, s.census(f.name)))}; newState ${newState.fEnv.keys}")
-          LetF(updatedFuns, shrink(body, newState))
+          if (updatedFuns.size > 0) 
+            LetF(updatedFuns, shrink(body, newState))
+          else 
+            shrink(body, newState)
         }
         case LetC(cnts, body) => {
           val (untouchedCnts, inlinedCnts) = cnts.partition(c => !s.appliedOnce(c.name))
-          val fixedCnts = untouchedCnts.map{
+          val fixedCnts = untouchedCnts.filter(cnt => !s.dead(cnt.name)).map{
             case Cnt(name, args, body) => 
               //println(s"shrinking $name")
               Cnt(name, args, shrink(body, s))
           }
           val newState = s.withCnts(inlinedCnts)
           debug(s"inlined ${inlinedCnts.size} cnts: $inlinedCnts; new State ${newState.cEnv.keys}")
-          LetC(fixedCnts, shrink(body, newState))
+          if (fixedCnts.size > 0)
+            LetC(fixedCnts, shrink(body, newState))
+          else
+            shrink(body, newState)
         }
         
         case AppC(cnt, args) => {
@@ -439,6 +445,48 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         formalArgs.length == actualArgs.length
 
       def inlineT(tree: Tree)(implicit s: State): Tree = tree match {
+        case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
+        case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
+        case LetC(cnts, body) => {
+          val inlinedCnts = cnts.map{ 
+            case Cnt(name, args, body) => Cnt(name, args, 
+              inlineT(body)
+            )
+          }
+          val newState = s.withCnts(inlinedCnts)
+          //if(inlinedCnts.size > 0) println(s"inlining cnts ${cnts.map(_.name)}")
+          LetC(inlinedCnts, inlineT(body)(newState))
+        }
+        case appc@AppC(cntName, args) => s.cEnv.get(cntName) match {
+          case Some(Cnt(_, presentArgs, body)) => 
+            //println(s"inlined cnt: $cntName")
+            val atomSubst = s.aSubst ++ presentArgs.map(AtomN).zip(args)
+            copyT(body, atomSubst, s.cSubst)
+          case None => appc
+        }
+        case LetF(funs, body) => {
+          val inlinedFuns = funs.map{
+            case Fun(name, retc, args, body) => Fun(name, retc, args, 
+              inlineT(body)
+            )
+          }
+          val newState = s.withFuns(funs)
+          //println(s"inlining ${funs.map(_.name)}")
+          LetF(funs, 
+            inlineT(body)(newState)
+          )
+        }
+        case appf@AppF(AtomN(fName), expectedCnt, args) => s.fEnv.get(fName) match {
+          case Some(Fun(_, retC, presentArgs, body)) => 
+            val argsMapping: Subst[Atom] = presentArgs.map(AtomN).zip(args).toMap 
+            val atomSubst = s.aSubst ++ argsMapping
+            val nameSubst = s.cSubst + (retC -> expectedCnt)
+            val inlinedFun = copyT(body, atomSubst, nameSubst)
+            //println(s"inlined $fName")
+            inlinedFun
+          case None => appf
+
+        }
         /*case AppF(AtomN(fName), retC, args) if s.fEnv.contains(fName) => {
           val fun = s.fEnv(fName)
           inlineT(fun.body)(s.withASubst(fun.retC, AtomN(retC)).withASubst(fun.args, args))
