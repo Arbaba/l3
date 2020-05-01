@@ -311,31 +311,30 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
         case LetC(cnts, body) => {
-          val fineCnts = cnts.map{ 
+          val inlinedCnts = cnts.map{ 
             case Cnt(name, args, body) => Cnt(name, args, 
               inlineT(body)
             )
           }
-          val inlinedCnts = fineCnts.filter(cnt => size(cnt.body) < cntLimit)
-          val newState = s.withCnts(inlinedCnts)
-          LetC(fineCnts, inlineT(body)(newState))
+          val inlinableCnts = inlinedCnts.filter(cnt => size(cnt.body) < cntLimit)
+          val newState = s.withCnts(inlinableCnts)
+          LetC(inlinedCnts, inlineT(body)(newState))
         }
         case appc@AppC(cntName, args) => s.cEnv.get(cntName) match {
           case Some(Cnt(_, presentArgs, body)) => 
-            //println(s"inlined cnt: $cntName")
             val atomSubst = s.aSubst ++ presentArgs.map(AtomN).zip(args)
             copyT(body, atomSubst, s.cSubst)
           case None => appc
         }
         case LetF(funs, body) => {
-          val fineFuns = funs.map{
+          val inlinedFuns = funs.map{
             case Fun(name, retc, args, body) => Fun(name, retc, args, 
               inlineT(body)
             )
           }
-          val inlinedFuns = fineFuns.filter(fun => size(fun.body) < funLimit)
-          val newState = s.withFuns(inlinedFuns)
-          LetF(fineFuns, inlineT(body)(newState))
+          val inlinableFuns = inlinedFuns.filter(fun => size(fun.body) < funLimit)
+          val newState = s.withFuns(inlinableFuns)
+          LetF(inlinedFuns, inlineT(body)(newState))
         }
         case appf@AppF(AtomN(fName), expectedCnt, args) => s.fEnv.get(fName) match {
           case Some(Fun(_, retC, presentArgs, body)) => 
