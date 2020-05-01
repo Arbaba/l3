@@ -5,10 +5,16 @@ import scala.collection.mutable.{ Map => MutableMap }
 abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   (val treeModule: T) {
   import treeModule._
+  var optimizations = MutableMap[String, Int]()
+  def inc(tag: String): Unit = {
+    optimizations(tag) = optimizations.getOrElse(tag, 0) + 1
+  }
   protected def rewrite(tree: Tree): Tree = {
     val simplifiedTree = fixedPoint(tree)(shrink)
     val maxSize = size(simplifiedTree) * 3 / 2
-    fixedPoint(simplifiedTree, 8) { t => inline(t, maxSize) }
+    val res = fixedPoint(simplifiedTree, 8) { t => inline(t, maxSize) }
+    println("["+Console.BLUE+"optimizations"+Console.WHITE+"] "+s"$optimizations")
+    res
   }
 
   private case class Count(applied: Int = 0, asValue: Int = 0)
@@ -19,13 +25,14 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     cSubst: Subst[Name] = emptySubst,
     eInvEnv: Map[(ValuePrimitive, Seq[Atom]), Atom] = Map.empty, //Map from primitives and arguments to names -> for common sub expr elimination
     cEnv: Map[Name, Cnt] = Map.empty,
-    fEnv: Map[Name, Fun] = Map.empty) {
+    fEnv: Map[Name, Fun] = Map.empty,
+    bEnv: Map[(Atom, Atom), Atom] = Map.empty) {
 
     def dead(s: Name): Boolean =
       ! census.contains(s)
     def appliedOnce(s: Name): Boolean =
       census.get(s).contains(Count(applied = 1, asValue = 0))
-
+    def withBlock(blockId: (Atom, Atom), value: Atom): State = copy(bEnv = bEnv + (blockId -> value))
     def withASubst(from: Atom, to: Atom): State =
       copy(aSubst = aSubst + (from -> aSubst(to)))
     def withASubst(from: Name, to: Atom): State =
@@ -76,7 +83,6 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   def freeVariablesCnt(cnt: Cnt): Set[Symbol] = freeVariables(cnt.body) -- Set(cnt.name) -- cnt.args.toSet
 
   // Shrinking optimizations
-  
   private def shrink(tree: Tree): Tree ={
     val res = shrink(tree, State(census(tree)))
     res
@@ -86,36 +92,45 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     letp match {
       /* Dead letp */
       case LetP(name, this.byteWrite, arg, body) => {
+        inc("byte-write")
         LetP(name, this.byteWrite, arg, shrink(body, s.withASubst(name, literal(0))))
       }
-      case LetP(name, prim, args, body)
+      case LetP(name, prim, _, body)
           if !impure(prim) && s.dead(name) => 
+              inc("dead-code-elimination")
               shrink(body,s)
       /*  constant folding arithmetic */
-      case LetP(name, prim, lits@Seq(AtomL(l1), AtomL(l2)), body) 
+      case LetP(name, prim, lits@Seq(AtomL(_), AtomL(_)), body) 
           if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
+          inc("constant-folding")
           val cf = (vEvaluator)((prim, toLits(lits)))
-          val newState = s.withASubst(name, cf)
-          shrink(body, newState)
+          shrink(body, s.withASubst(name, cf))
       case LetP(name, this.identity, Seq(AtomN(sameName)), body) => 
+          inc("constant-folding")
           shrink(body, s.withCSubst(name, sameName))
-      case LetP(name, this.identity, Seq(atom: Atom), body) => {
-        val newState = s.withASubst(AtomN(name), atom)
-        shrink(body, newState)
-      }
             /* Neutral and absorbing elements */
       case LetP(name, prim, lits@Seq(AtomL(v1),v2), body) 
         if leftNeutral.contains((v1, prim)) => 
+          inc("neutral-left")
           shrink(body, s.withASubst(name, v2))
       case LetP(name, prim, lits@Seq(v1,AtomL(v2)), body) 
         if rightNeutral.contains((prim, v2)) => 
+          inc("neutral-right")
           shrink(body, s.withASubst(name, v1))
       case LetP(name, prim, lits@Seq(a1@AtomL(v1),_), body) 
         if leftAbsorbing.contains((v1, prim)) => 
+          inc("absorbing-left")
           shrink(body, s.withASubst(name, a1))
       case LetP(name, prim, lits@Seq(_,a2@AtomL(v2)), body) 
         if rightAbsorbing.contains((prim,v2)) => 
+          inc("absorbing-right")
           shrink(body, s.withASubst(name, a2))
+      case LetP(name, blockSet, args@Seq(b, i, v), body) =>
+        LetP(name, blockSet, args, shrink(body, s.withBlock((b, i), v)))
+      case LetP(name, blockGet, args@Seq(b, i), body) => s.bEnv.get((b, i)) match {
+        case Some(value) => shrink(body, s.withASubst(AtomN(name), value))
+        case None => LetP(name, blockGet, args, shrink(body, s))
+      }
       case LetP(name, prim, args, body)   =>
           val updatedArgs = args.map(arg => s.sub(arg))
           s.eInvEnv.get((prim, updatedArgs)) match {
@@ -125,12 +140,6 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
               val state = if(impure(prim) || unstable(prim)) s else s.withExp(name, prim, updatedArgs)
               LetP(name, prim, updatedArgs, shrink(body, state))
           }
-      case letp@LetP(name, prim, args, body) => {
-        val updatedArgs = args.map(arg => s.sub(arg))
-        LetP(name, prim, updatedArgs, shrink(body, s))
-      }
-
-
     }
   }
   def shrinkAppF(af: Tree, s: State): Tree = af match {
@@ -144,6 +153,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     }
     case appf@AppF(fun@AtomN(fName), retC, args) => s.fEnv.get(fName) match {
       case Some(inlinable@Fun(inName, inRet, inArgs, inBody)) => {
+        inc("inline-fun")
         shrink(inBody, s.withASubst(inArgs, args).withCSubst(inRet, retC))
       }
       case None => appf
@@ -161,6 +171,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         val newArgs = args.map((arg: Atom) => s.sub(arg))
         //println(s"changed args $args -> $newArgs")
         val newState = s.withASubst(currentArgs, newArgs)
+        inc("inline-cnt")
         shrink(body, newState)
       }
       case None => appc
@@ -170,6 +181,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     case If(cond,  lits@Seq(AtomL(l1), AtomL(l2)), ct, cf) 
       if cEvaluator.isDefinedAt((cond, toLits(lits)))  => {
         //constant folding boolean literals 
+        inc("constant-folding")
         if((cEvaluator)((cond,  toLits(lits)))){
           shrink(AppC(ct, Seq()), s)
         }else {
@@ -179,6 +191,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           
     case If(cond,  Seq(v1, v2), ct, cf)  
       if v1 == v2  => {
+        inc("constant-folding")
         if(sameArgReduceC(cond)){
           shrink(AppC(ct, Seq()), s)
         }else {
@@ -401,6 +414,8 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal]
   protected val blockTag: ValuePrimitive
   protected val blockLength: ValuePrimitive
+  protected val blockSet: ValuePrimitive
+  protected val blockGet: ValuePrimitive
   protected val byteWrite: ValuePrimitive
   protected val identity: ValuePrimitive
   protected def literal(x: Int): AtomL
@@ -442,6 +457,8 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
   protected val blockTag: ValuePrimitive = L3BlockTag
   protected val blockLength: ValuePrimitive = L3BlockLength
   protected val byteWrite: ValuePrimitive = L3ByteWrite
+  protected val blockSet: ValuePrimitive = L3BlockSet
+  protected val blockGet: ValuePrimitive = L3BlockGet
 
   protected val identity: ValuePrimitive = L3Id
   private def int(x: Int) = intToLit(x)
@@ -507,13 +524,15 @@ object CPSOptimizerLow extends CPSOptimizer(SymbolicCPSTreeModuleLow)
   protected val unstable: ValuePrimitive => Boolean = {
     case CPSBlockAlloc(_) | CPSBlockGet | CPSByteRead => true
     case _ => false
-  }
+  } 
 
   protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal] = {
     case CPSBlockAlloc(tag) => tag
   }
   protected val blockTag: ValuePrimitive = CPSBlockTag
   protected val blockLength: ValuePrimitive = CPSBlockLength
+  protected val blockSet: ValuePrimitive = CPSBlockSet
+  protected val blockGet: ValuePrimitive = CPSBlockGet
   protected val byteWrite: ValuePrimitive = CPSByteWrite
   protected val identity: ValuePrimitive = CPSId
   protected def literal(x: Int): AtomL = AtomL(x << 1 + 1)

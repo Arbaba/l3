@@ -19,7 +19,7 @@ object Main {
       andThen CPSValueRepresenter
       andThen CPSHoister
       andThen CPSOptimizerLow
-      andThen treePrinter("==============final==============")
+      andThen treePrinter("==============((((((((((((((final))))))))))))))==============")
       andThen (new CPSInterpreterLow(stats.log _))
     )
     val basePath = Paths.get(".").toAbsolutePath
