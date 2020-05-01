@@ -188,7 +188,17 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           shrink(AppC(cf, Seq()), s)
         }
     }
-          
+
+   case If(cond,  Seq(AtomL(BooleanLit(v1)), AtomL(BooleanLit(v2))), ct, cf)  
+     if sameArgReduceC(cond) => {
+      inc("constant-folding")
+
+      if(v1 == v2){
+        shrink(AppC(ct, Seq()), s)
+      }else {
+        shrink(AppC(cf, Seq()), s)
+      }
+    }   
     case If(cond,  Seq(v1, v2), ct, cf)  
       if v1 == v2  => {
         inc("constant-folding")
@@ -197,7 +207,8 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         }else {
           shrink(AppC(cf, Seq()), s)
         }
-      }   
+      }  
+
     case _ => ifNode
   }
   private def shrink(tree: Tree, s: State): Tree = {
