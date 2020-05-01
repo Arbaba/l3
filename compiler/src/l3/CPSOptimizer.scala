@@ -219,15 +219,16 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case _ => halt
         }
         case LetF(funs, body) => {
-          val updatedFuns: Seq[Fun] = funs.filter(f => !s.dead(f.name)).map{
+       
+          val (unchangedFuns, inlinedFuns) = funs.filter(f => !s.dead(f.name)).partition(f => !s.appliedOnce(f.name))
+          val newState = s.withFuns(inlinedFuns)  
+
+          val updatedFuns: Seq[Fun] = unchangedFuns.map{
             case Fun(name, rc, args, body) =>
-              Fun(name, rc, args, shrink(body, s))
+              Fun(name, rc, args, shrink(body, newState))
           }
-          val (unchangedFuns, inlinedFuns) = updatedFuns.partition(f => !s.appliedOnce(f.name))
-          
-          val newState = s.withFuns(inlinedFuns)
-          if (unchangedFuns.size > 0) 
-            LetF(unchangedFuns, shrink(body, newState))
+          if (updatedFuns.size > 0) 
+            LetF(updatedFuns, shrink(body, newState))
           else 
             shrink(body, newState)
         }
@@ -319,6 +320,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         formalArgs.length == actualArgs.length
         
       def inlineT(tree: Tree)(implicit s: State): Tree = tree match {
+        case _ => tree
         case LetP(name, prim, args, body) => LetP(name, prim, args, inlineT(body))
         case LetC(cnts, body) if (cnts.size == 0) => inlineT(body)
         case LetC(cnts, body) => {
