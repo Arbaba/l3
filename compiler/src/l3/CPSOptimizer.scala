@@ -26,12 +26,14 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     eInvEnv: Map[(ValuePrimitive, Seq[Atom]), Atom] = Map.empty, //Map from primitives and arguments to names -> for common sub expr elimination
     cEnv: Map[Name, Cnt] = Map.empty,
     fEnv: Map[Name, Fun] = Map.empty,
+    bSizes: Map[Atom, Atom] = Map.empty,
     bEnv: Map[(Atom, Atom), Atom] = Map.empty) {
 
     def dead(s: Name): Boolean =
       ! census.contains(s)
     def appliedOnce(s: Name): Boolean =
       census.get(s).contains(Count(applied = 1, asValue = 0))
+    def withAlloc(blockId: Atom, size: Atom): State = copy(bSizes = bSizes + (blockId -> size))
     def withBlock(blockId: (Atom, Atom), value: Atom): State = copy(bEnv = bEnv + (blockId -> value))
     def withASubst(from: Atom, to: Atom): State =
       copy(aSubst = aSubst + (from -> aSubst(to)))
@@ -125,11 +127,17 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         if rightAbsorbing.contains((prim,v2)) => 
           inc("absorbing-right")
           shrink(body, s.withASubst(name, a2))
-      case LetP(name, blockSet, args@Seq(b, i, v), body) =>
-        LetP(name, blockSet, args, shrink(body, s.withBlock((b, i), v)))
+      case LetP(name, prim, args@Seq(size), body) 
+        if blockAllocTag.isDefinedAt(prim) =>
+          LetP(name, prim, args, shrink(body, s.withAlloc(AtomN(name), size)))
+      case LetP(name, blockSet, args@Seq(b, i, v), body) 
+        if s.bSizes.contains(b) =>
+          LetP(name, blockSet, args, shrink(body, s.withBlock((b, i), v)))
       case LetP(name, blockGet, args@Seq(b, i), body) => s.bEnv.get((b, i)) match {
-        case Some(value) => shrink(body, s.withASubst(AtomN(name), value))
-        case None => LetP(name, blockGet, args, shrink(body, s))
+        case Some(value) => 
+          shrink(body, s.withASubst(AtomN(name), value))
+        case None => 
+        LetP(name, blockGet, args, shrink(body, s))
       }
       case LetP(name, prim, args, body)   =>
           val updatedArgs = args.map(arg => s.sub(arg))
