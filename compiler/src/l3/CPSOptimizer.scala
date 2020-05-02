@@ -21,15 +21,17 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     eInvEnv: Map[(ValuePrimitive, Seq[Atom]), Atom] = Map.empty, //Map from primitives and arguments to names -> for common sub expr elimination
     cEnv: Map[Name, Cnt] = Map.empty,
     fEnv: Map[Name, Fun] = Map.empty,
-    bSizes: Map[Atom, Atom] = Map.empty,
+    blocksDims: Map[Atom, (Atom, Literal)] = Map.empty,
     bEnv: Map[(Atom, Atom), Atom] = Map.empty) {
 
     def dead(s: Name): Boolean =
       ! census.contains(s)
     def appliedOnce(s: Name): Boolean =
       census.get(s).contains(Count(applied = 1, asValue = 0))
-    def withAlloc(blockId: Atom, size: Atom): State = copy(bSizes = bSizes + (blockId -> size))
-    def withBlock(blockId: (Atom, Atom), value: Atom): State = copy(bEnv = bEnv + (blockId -> value))
+    def withAlloc(blockId: Atom, size: Atom, tag: Literal): State = 
+      copy(blocksDims = blocksDims + (blockId -> (size, tag)))
+    def withBlock(blockId: (Atom, Atom), value: Atom): State = 
+      copy(bEnv = bEnv + (blockId -> value))
     def withASubst(from: Atom, to: Atom): State =
       copy(aSubst = aSubst + (from -> aSubst(to)))
     def withASubst(from: Name, to: Atom): State =
@@ -68,19 +70,31 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     /*
       byte-write always returns unit 
     */
+
     case LetP(name, this.byteWrite, arg, body) => 
       LetP(name, this.byteWrite, arg, shrink(body, s.withASubst(name, unit)))
     /* Dead letp */
     case LetP(name, prim, _, body)
       if !impure(prim) && s.dead(name) => 
           shrink(body,s)
+
     /*  constant folding arithmetic */
     case LetP(name, prim, lits@Seq(AtomL(_), AtomL(_)), body) 
       if vEvaluator.isDefinedAt((prim,toLits(lits)))  =>
         val cf = (vEvaluator)((prim, toLits(lits)))
         shrink(body, s.withASubst(name, cf))
+
     case LetP(name, this.identity, Seq(AtomN(sameName)), body) => 
       shrink(body, s.withCSubst(name, sameName))
+
+
+    case letp@LetP(b, prim, args@Seq(size), body) 
+      if blockAllocTag.isDefinedAt(prim) =>
+        LetP(b, prim, args, shrink(body, s.withAlloc(AtomN(b), size, blockAllocTag(prim))))
+    case LetP(t, blockTag, Seq(b), body) => s.blocksDims.get(b) match {
+      case Some(alloc) => shrink(body, s.withASubst(AtomN(t), AtomL(alloc._2)))
+      case None => LetP(t, blockTag, Seq(b), shrink(body, s))
+    }
     /* Neutral and absorbing elements */
     case LetP(name, prim, lits@Seq(AtomL(v1),v2), body) 
       if leftNeutral.contains((v1, prim)) => 
@@ -94,11 +108,8 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
     case LetP(name, prim, lits@Seq(_,a2@AtomL(v2)), body) 
       if rightAbsorbing.contains((prim,v2)) => 
         shrink(body, s.withASubst(name, a2))
-    case LetP(name, prim, args@Seq(size), body) 
-      if blockAllocTag.isDefinedAt(prim) =>
-        LetP(name, prim, args, shrink(body, s.withAlloc(AtomN(name), size)))
     case LetP(name, blockSet, args@Seq(b, i, v), body) 
-      if s.bSizes.contains(b) =>
+      if s.blocksDims.contains(b) =>
         LetP(name, blockSet, args, shrink(body, s.withBlock((b, i), v)))
     case LetP(name, blockGet, args@Seq(b, i), body) => s.bEnv.get((b, i)) match {
       case Some(value) => 
