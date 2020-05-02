@@ -93,7 +93,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
       /* Dead letp */
       case LetP(name, this.byteWrite, arg, body) => {
         inc("byte-write")
-        LetP(name, this.byteWrite, arg, shrink(body, s.withASubst(name, literal(0))))
+        LetP(name, this.byteWrite, arg, shrink(body, s.withASubst(name, unit)))
       }
       case LetP(name, prim, _, body)
           if !impure(prim) && s.dead(name) => 
@@ -156,7 +156,10 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
         inc("inline-fun")
         shrink(inBody, s.withASubst(inArgs, args).withCSubst(inRet, retC))
       }
-      case None => appf
+      case None => {
+        println(s"didn't inline $fName")
+        appf
+      }
     }
   }
   def shrinkAppC(ac: AppC, s: State): Tree = ac match {
@@ -208,7 +211,7 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
           case _ => halt
         }
         case LetF(funs, body) => {
-          val updatedFuns: Seq[Fun] = funs.filter(f => !s.dead(f.name)).map{
+          val updatedFuns = funs.filter(f => !s.dead(f.name)).map{
             case Fun(name, rc, args, body) =>
               Fun(name, rc, args, shrink(body, s))
           }
@@ -410,11 +413,17 @@ abstract class CPSOptimizer[T <: CPSTreeModule { type Name = Symbol }]
   protected val blockAllocTag: PartialFunction[ValuePrimitive, Literal]
   protected val blockTag: ValuePrimitive
   protected val blockLength: ValuePrimitive
+
   protected val blockSet: ValuePrimitive
   protected val blockGet: ValuePrimitive
   protected val byteWrite: ValuePrimitive
+
   protected val identity: ValuePrimitive
+
   protected def literal(x: Int): AtomL
+
+  protected val unit: Literal
+
   protected val leftNeutral: Set[(Literal, ValuePrimitive)]
   protected val rightNeutral: Set[(ValuePrimitive, Literal)]
   protected val leftAbsorbing: Set[(Literal, ValuePrimitive)]
@@ -452,9 +461,12 @@ object CPSOptimizerHigh extends CPSOptimizer(SymbolicCPSTreeModule)
   }
   protected val blockTag: ValuePrimitive = L3BlockTag
   protected val blockLength: ValuePrimitive = L3BlockLength
+  
   protected val byteWrite: ValuePrimitive = L3ByteWrite
   protected val blockSet: ValuePrimitive = L3BlockSet
   protected val blockGet: ValuePrimitive = L3BlockGet
+
+  protected val unit: Literal = UnitLit
 
   protected val identity: ValuePrimitive = L3Id
   private def int(x: Int) = intToLit(x)
@@ -527,9 +539,13 @@ object CPSOptimizerLow extends CPSOptimizer(SymbolicCPSTreeModuleLow)
   }
   protected val blockTag: ValuePrimitive = CPSBlockTag
   protected val blockLength: ValuePrimitive = CPSBlockLength
+
   protected val blockSet: ValuePrimitive = CPSBlockSet
   protected val blockGet: ValuePrimitive = CPSBlockGet
   protected val byteWrite: ValuePrimitive = CPSByteWrite
+
+  protected val unit: Literal = 2//fact-check
+
   protected val identity: ValuePrimitive = CPSId
   protected def literal(x: Int): AtomL = AtomL(x << 1 + 1)
   protected val leftNeutral: Set[(Literal, ValuePrimitive)] =
