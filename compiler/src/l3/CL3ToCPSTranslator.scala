@@ -91,8 +91,7 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
           C.LetP(n1, L3Id, Seq(v1), cond(S.Let(otherArgs, body), ct, cf))
         }
       case S.If(e1, S.Lit(BooleanLit(v1)), S.Lit(BooleanLit(v2))) => 
-        if(v1 == v2) throw new Exception("Unhandled case")//cond(e1, ct, cf)//trivial case. we still have to evaluate the condition in case it produces a side effect
-        else if(v1 == true) cond(e1, ct, cf)
+        if(v1 == true) cond(e1, ct, cf)
         else cond(e1, cf, ct)
       case S.If(e1, e2, S.Lit(BooleanLit(v3))) => 
         val ac = Symbol fresh "ac"
@@ -114,7 +113,6 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
         C.If(L3Eq, Seq(v, C.AtomL(BooleanLit(true))), ct, cf)
       }
       }
-      case _ => throw new Exception(s"$t ($cf, $ct)")
     }
   }
 
@@ -183,7 +181,6 @@ def bool(v: Boolean): S.Lit = S.Lit(BooleanLit(v))(UnknownPosition)
           }
         }
         atomStacker(args, nil)(context)  
-      case _ => throw new Exception("Unhandled AST node")
     }
   }
   
