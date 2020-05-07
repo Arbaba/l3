@@ -1,4 +1,4 @@
-mod memory_nofree;
+mod memory;
 mod engine;
 
 use std::{env, process};
@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead};
 
 use crate::engine::Engine;
-use crate::memory_nofree::Memory;
+use crate::memory::Memory;
 
 pub type L3Value = i32;
 pub const LOG2_VALUE_BYTES : usize = 2;

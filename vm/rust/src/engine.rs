@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::memory_nofree::Memory;
+use crate::memory::Memory;
 use crate::{L3Value, LOG2_VALUE_BYTES, TAG_REGISTER_FRAME};
 
 const ADD     : L3Value =  0;
