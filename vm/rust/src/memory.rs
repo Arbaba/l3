@@ -1,8 +1,11 @@
 use crate::L3Value;
 
+
 pub struct Memory {
     content: Vec<L3Value>,
-    free_ix: usize,
+    HEAD: usize, // = list head
+    MINSIZE: usize,
+    bitmap: Vec<bool>,
 }
 
 fn header_pack(tag: L3Value, size: L3Value) -> L3Value {
@@ -24,36 +27,71 @@ impl Memory {
     pub fn new(word_size: usize) -> Memory {
         Memory {
             content: vec![0; word_size],
-            free_ix: 0
+            HEAD: 0,
+            MINSIZE: 0,
+            bitmap: vec![0; word_size],
         }
     }
 
     pub fn set_heap_start(&mut self, heap_start_index: usize) {
         debug_assert!(heap_start_index < self.content.len());
-        self.free_ix = heap_start_index
+        //set HEAD after header and set header to size of whole block.
+        self.HEAD = heap_start_index + 1;
+        self[HEAD] = header_pack(0, self.content.len()-1);
+        //set minimum size of a block to store header and 
+        self.MINSIZE = 3 // header + pointer + ???
     }
 
     pub fn allocate(&mut self,
                     tag: L3Value,
                     size: L3Value,
                     _gc_roots: [usize; 4]) -> usize {
-        debug_assert!(0 <= tag && tag <= 0xFF);
-        debug_assert!(0 <= size);
-
-        let header_ix = self.free_ix;
-        self.free_ix += 1 + (size as usize);
+        let block_size = header_unpack_size(self.HEAD);
+        let full_mem = false;
+        let header_ix = self.HEAD;
+        if block_size >  size && block_size > self.MINSIZE {
+          //split block
+          //check if there is a "next" block
+          let tail = self[self.HEAD+1];
+          //move head to after allocate block
+          self.HEAD += (size as usize) + 1;
+          //compute new size and set header
+          self[self.HEAD] = header_pack(0, block_size - (size + 1));
+          //put back tail of list
+          self[self.HEAD+1] = tail
+        } else {
+          full_mem = true;
+          //get next pointer 
+          //allocate in the middle
+        }
         /*
-                      tag
+        Look for next block.  
         */
         
-        if self.free_ix >= self.content.len() {
+        /*
+        tag
+        */
+        
+        if full_mem {
+          println!("GC");
+          println!("traversing");
+          for root in _gc_roots.iter() {
+            self.traverse(root);
+          }
           /*
               sweep
           */
-            self.sweep();
-        };
+          self.sweep();
+        }
         self[header_ix] = header_pack(tag, size);
         header_ix + 1
+    }
+
+    pub fn traverse(&mut self, address: &usize) {
+      //check if address is a pointer
+      if self[*address] & 0b11 != 0 {
+        println!("chasing pointer");
+      }
     }
 
     pub fn sweep(&mut self) {
