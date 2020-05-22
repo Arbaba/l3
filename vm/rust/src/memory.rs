@@ -1,10 +1,11 @@
 use crate::L3Value;
 
+const NIL: L3Value = 0;
+const BLOCK_SIZE_MIN: usize = 3;
 
 pub struct Memory {
     content: Vec<L3Value>,
-    HEAD: usize, // = list head
-    MINSIZE: usize,
+    head: usize, // = list head
     bitmap: Vec<bool>,
 }
 
@@ -27,64 +28,81 @@ impl Memory {
     pub fn new(word_size: usize) -> Memory {
         Memory {
             content: vec![0; word_size],
-            HEAD: 0,
-            MINSIZE: 0,
-            bitmap: vec![0; word_size],
+            head: 0,
+            bitmap: vec![false; word_size],
         }
     }
 
     pub fn set_heap_start(&mut self, heap_start_index: usize) {
         debug_assert!(heap_start_index < self.content.len());
-        //set HEAD after header and set header to size of whole block.
-        self.HEAD = heap_start_index + 1;
-        self[HEAD] = header_pack(0, self.content.len()-1);
+        //set head after header and set header to size of whole block.
+        self.head = heap_start_index + 2;
+        self[heap_start_index] = header_pack(0, (self.content.len()-1) as i32);
+        self[heap_start_index+1] = NIL;
         //set minimum size of a block to store header and 
-        self.MINSIZE = 3 // header + pointer + ???
+    }
+
+    pub fn get_next_pointer(&mut self, block: usize) -> usize { 
+        return self.content[block - 1] as usize;
+    }
+
+    pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
+        self.content[block - 1] = next_block as i32;
     }
 
     pub fn allocate(&mut self,
                     tag: L3Value,
                     size: L3Value,
                     _gc_roots: [usize; 4]) -> usize {
-        let block_size = header_unpack_size(self.HEAD);
-        let full_mem = false;
-        let header_ix = self.HEAD;
-        if block_size >  size && block_size > self.MINSIZE {
-          //split block
-          //check if there is a "next" block
-          let tail = self[self.HEAD+1];
-          //move head to after allocate block
-          self.HEAD += (size as usize) + 1;
-          //compute new size and set header
-          self[self.HEAD] = header_pack(0, block_size - (size + 1));
-          //put back tail of list
-          self[self.HEAD+1] = tail
-        } else {
-          full_mem = true;
-          //get next pointer 
-          //allocate in the middle
+        /*
+            look for next big enough block address
+        */
+        let mut current_free_size = self.block_size(self.head) ;
+        let target_size = size + 1;
+        let mut p = self.head;
+        let nil: usize = 0; // Unboxed 0 pointer
+        let mut prev = nil;
+        while current_free_size < (size + 1) && p != nil {
+            prev = p;
+            p = self.get_next_pointer(p);
+            if p == nil {
+                panic!("no more memory");
+            }
+            current_free_size = self.block_size(p);
         }
         /*
-        Look for next block.  
+            break block and mark it
         */
-        
-        /*
-        tag
-        */
-        
+        //mark new block
+        let res = p;
+        //p += (size + 2) as usize; // + 2 accounts for the header of the new  block
+        self.content[res - 2] = header_pack(tag, size);
+        //mark new free block
+        let new_head = res + (size) as usize + 2;
+        self.head = new_head;
+
+        let free_size = current_free_size - (size + 2); // + 2 is the header size of the new block
+        //check that the block is big enough
+        self[new_head-2] = header_pack(0, free_size);
+        //self[self.head-1] = 
+        //self.content[p] = header_pack(0, free_size - 2);
+        //self.content[p] = self.content[res+1]; // old next pointer
+        //clear old next pointer
+        //set old next pointer to new block
+        /*if prev != nil {
+            self.content[(prev + 1) as usize] = p;
+        }*/
+        /*let full_mem = true;
         if full_mem {
           println!("GC");
           println!("traversing");
           for root in _gc_roots.iter() {
             self.traverse(root);
           }
-          /*
-              sweep
-          */
           self.sweep();
         }
-        self[header_ix] = header_pack(tag, size);
-        header_ix + 1
+        self[header_ix] = header_pack(tag, size);*/
+        res
     }
 
     pub fn traverse(&mut self, address: &usize) {
@@ -99,11 +117,11 @@ impl Memory {
     }
 
     pub fn block_tag(&self, ix: usize) -> L3Value {
-        header_unpack_tag(self.content[ix - 1])
+        header_unpack_tag(self.content[ix - 2])
     }
 
     pub fn block_size(&self, ix: usize) -> L3Value {
-        header_unpack_size(self.content[ix - 1])
+        header_unpack_size(self.content[ix - 2])
     }
 }
 

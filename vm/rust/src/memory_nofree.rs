@@ -39,6 +39,7 @@ impl Memory {
                     _gc_roots: [usize; 4]) -> usize {
         debug_assert!(0 <= tag && tag <= 0xFF);
         debug_assert!(0 <= size);
+        println!("[MEM] allocating {} {}", tag, size);
 
         let header_ix = self.free_ix;
         self.free_ix += 1 + (size as usize);
