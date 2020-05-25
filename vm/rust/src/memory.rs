@@ -96,7 +96,7 @@ impl Memory {
                 self.set_next_pointer(insert, nil); // setting last free block's next to nil
                 println!("all blocks marked, looking for {} bytes", size);
                 current_free_size = 0;
-                p = prev;
+                p = self.head; // restart where you left off
                 //panic!("no more memory");
             }
             else {
