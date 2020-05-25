@@ -1,6 +1,7 @@
 use crate::L3Value;
 
-const NIL: L3Value = 0;
+const NIL_TARGET: L3Value = 0;
+const NIL: usize = 0;
 const BLOCK_SIZE_MIN: usize = 3;
 
 pub struct Memory {
@@ -43,7 +44,7 @@ impl Memory {
         self.heap_start = heap_start_index + 2;
         let heap_size = (self.content.len()-1-heap_start_index) as i32;
         self[heap_start_index] = header_pack(0, heap_size);
-        self[heap_start_index+1] = NIL;
+        self[heap_start_index+1] = NIL_TARGET;
         //set minimum size of a block to store header and 
     }
 
@@ -64,17 +65,22 @@ impl Memory {
             look for next big enough block address
         */
         println!("[MEM] HEAD@{}", self.head);
-        let mut current_free_size = self.block_size(self.head) ;
+        let mut current_free_size = if(self.head != NIL) { self.block_size(self.head) } else { 0 };
         let target_size = size + 1;
         let mut p = self.head;
-        let nil: usize = 0; // Unboxed 0 pointer
-        let mut prev = nil;
-        while current_free_size < (size + 1) || p == nil {
+        let mut prev = NIL;
+        let mut next = NIL;
+        //bootstrap next
+        if p != NIL {
+            next = self.get_next_pointer(p);
+        }
+        while current_free_size < (size + 1) || p == NIL {
             prev = p;
-            p = self.get_next_pointer(p);
+            p = next;
 
             println!("[MEM] {}=>{}", prev, p);
-            if p == nil {
+            if p == NIL {
+                next = NIL;
                 /*Garbage collect*/
                 for root in _gc_roots.iter() {
                     self.traverse(root);
@@ -82,25 +88,38 @@ impl Memory {
                 let mut insert = prev;
                 for i in self.heap_start..self.content.len() {
                     if self.bitmap[i] { // this address is the start of a block and it is free
-                        println!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i));
-                        self.set_next_pointer(insert, i);
-                        println!("[MEM] link block @{} -> @{}", insert, i);
-                        insert = i;
-                        self.bitmap[i] = false; // unnecessary really
-                        if p == nil {
-                            p = i;
+                        if next == NIL { // set next to first non-nil block
+                            next = i;
                         }
+                        println!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i));
+                        let previous_size = if(insert != NIL) { self.block_size(insert) } else { 0 };
+                        if i == insert + previous_size as usize + 2 {
+                            /*Coalesce with previous block*/
+                            println!("[MEM] coalesced {} w/ {}", i, insert);
+                            self[insert-2] = header_pack(0, previous_size + self.block_size(i) + 2);
+                            self[i - 1] = 0;
+                            self[i - 2] = 0;
+                        }
+                        else {
+                            /*Add new block*/
+                            if insert != NIL {
+                                self.set_next_pointer(insert, i);
+                            }
+                            println!("[MEM] link block @{} -> @{}", insert, i);
+                            insert = i;
+                        }
+                        self.bitmap[i] = false; // unnecessary really
                     }
                     
                 }
-                self.set_next_pointer(insert, nil); // setting last free block's next to nil
-                println!("all blocks marked, looking for {} bytes", size);
+                self.set_next_pointer(insert, NIL); // setting last free block's next to nil
                 current_free_size = 0;
-                p = self.head; // restart where you left off
+                println!("all blocks marked, looking for {} bytes, \"HEAD\" is {}", size, p);
                 //panic!("no more memory");
             }
             else {
                 current_free_size = self.block_size(p);
+                next = self.get_next_pointer(p);
                 println!("[MEM] sizeof {}={}", p, current_free_size);
             }
         }
