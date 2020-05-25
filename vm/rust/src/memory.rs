@@ -94,13 +94,14 @@ impl Memory {
                     
                 }
                 self.set_next_pointer(insert, nil); // setting last free block's next to nil
-                println!("all blocks marked");
+                println!("all blocks marked, looking for {} bytes", size);
                 current_free_size = 0;
+                p = prev;
                 //panic!("no more memory");
             }
             else {
-                println!("[MEM] sizeof {}", p);
                 current_free_size = self.block_size(p);
+                println!("[MEM] sizeof {}={}", p, current_free_size);
             }
         }
         println!("[MEM] found block {}@{} for {}b, next is {}", self.block_size(p), p, target_size, self.get_next_pointer(p));
