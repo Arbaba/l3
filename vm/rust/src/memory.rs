@@ -28,7 +28,7 @@ fn header_unpack_size(header: L3Value) -> L3Value {
 
 impl Memory {
     pub fn new(word_size: usize) -> Memory {
-        println!("[MEM] word-size:{}", word_size);
+        //println!("[MEM] word-size:{}", word_size);
         Memory {
             heap_start: 0,
             content: vec![0; word_size],
@@ -53,18 +53,57 @@ impl Memory {
     }
 
     pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
-        println!("[MEM] translating {} to {} @{}", next_block, (next_block << 2), block);
+        //println!("[MEM] translating {} to {} @{}", next_block, (next_block << 2), block);
         self.content[block - 1] = (next_block << 2) as i32;
     }
 
+    pub fn mark(&mut self, _gc_roots: [usize; 4] ) {
+        for root in _gc_roots.iter() {
+            self.traverse(root);
+        }
+    }
+    
+    //Returns the next free block given the previous (current) and next block in the free list
+    //Also coalesces adjacent free blocks
+    pub fn sweep(&mut self, prev: usize, mut next: usize ) -> usize{
+
+        let mut insert = prev;
+        for i in self.heap_start..self.content.len() {
+            if self.bitmap[i] { // this address is the start of a block and it is free
+                if next == NIL { // set next to first non-nil block
+                    next = i;
+                }
+                //println!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i));
+                let previous_size = if(insert != NIL) { self.block_size(insert) } else { 0 };
+                if i == insert + previous_size as usize + 2 {
+                    /*Coalesce with previous block*/
+                    //println!("[MEM] coalesced {} w/ {}", i, insert);
+                    self[insert-2] = header_pack(0, previous_size + self.block_size(i) + 2);
+                    self[i - 1] = 0;
+                    self[i - 2] = 0;
+                }
+                else {
+                    /*Add new block*/
+                    if insert != NIL {
+                        self.set_next_pointer(insert, i);
+                    }
+                    //println!("[MEM] link block @{} -> @{}", insert, i);
+                    insert = i;
+                }
+                self.bitmap[i] = false; // unnecessary really
+            }
+            
+        }
+        self.set_next_pointer(insert, NIL); // setting last free block's next to nil
+
+        return next;
+    }
     pub fn allocate(&mut self,
                     tag: L3Value,
                     size: L3Value,
                     _gc_roots: [usize; 4]) -> usize { 
-        /*
-            look for next big enough block address
-        */
-        println!("[MEM] HEAD@{}", self.head);
+
+        //println!("[MEM] HEAD@{}", self.head);
         let mut current_free_size = if(self.head != NIL) { self.block_size(self.head) } else { 0 };
         let target_size = size + 1;
         let mut p = self.head;
@@ -74,54 +113,29 @@ impl Memory {
         if p != NIL {
             next = self.get_next_pointer(p);
         }
+        
+        /*
+            look for next big enough block address
+        */
         while current_free_size < (size + 1) || p == NIL {
             prev = p;
             p = next;
-
-            println!("[MEM] {}=>{}", prev, p);
+            
             if p == NIL {
-                next = NIL;
-                /*Garbage collect*/
-                for root in _gc_roots.iter() {
-                    self.traverse(root);
-                }
-                let mut insert = prev;
-                for i in self.heap_start..self.content.len() {
-                    if self.bitmap[i] { // this address is the start of a block and it is free
-                        if next == NIL { // set next to first non-nil block
-                            next = i;
-                        }
-                        println!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i));
-                        let previous_size = if(insert != NIL) { self.block_size(insert) } else { 0 };
-                        if i == insert + previous_size as usize + 2 {
-                            /*Coalesce with previous block*/
-                            println!("[MEM] coalesced {} w/ {}", i, insert);
-                            self[insert-2] = header_pack(0, previous_size + self.block_size(i) + 2);
-                            self[i - 1] = 0;
-                            self[i - 2] = 0;
-                        }
-                        else {
-                            /*Add new block*/
-                            if insert != NIL {
-                                self.set_next_pointer(insert, i);
-                            }
-                            println!("[MEM] link block @{} -> @{}", insert, i);
-                            insert = i;
-                        }
-                        self.bitmap[i] = false; // unnecessary really
-                    }
-                    
-                }
-                self.set_next_pointer(insert, NIL); // setting last free block's next to nil
+                self.mark(_gc_roots);
+                next = self.sweep(prev, NIL);
                 current_free_size = 0;
                 println!("all blocks marked, looking for {} bytes, \"HEAD\" is {}", size, p);
-                //panic!("no more memory");
-            }
-            else {
+                if next == NIL {
+                    panic!("Could not free memory");
+                }
+
+            }else{
                 current_free_size = self.block_size(p);
                 next = self.get_next_pointer(p);
-                println!("[MEM] sizeof {}={}", p, current_free_size);
             }
+           
+            println!("[MEM] sizeof {}={}", p, current_free_size);
         }
         println!("[MEM] found block {}@{} for {}b, next is {}", self.block_size(p), p, target_size, self.get_next_pointer(p));
         /*
@@ -176,9 +190,7 @@ impl Memory {
         }
     }
 
-    pub fn sweep(&mut self) {
-      println!("sweeping");
-    }
+
 
     pub fn block_tag(&self, ix: usize) -> L3Value {
         header_unpack_tag(self.content[ix - 2])
