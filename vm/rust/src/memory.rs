@@ -117,11 +117,15 @@ impl Memory {
         /*
             look for next big enough block address
         */
+        let mut usedGC = false;
         while current_free_size < (size + 1) || p == NIL {
             prev = p;
             p = next;
-            
+
             if p == NIL {
+                if usedGC{
+                    panic!("Tried to used GC twice in a row");
+                }
                 self.mark(_gc_roots);
                 next = self.sweep(prev, NIL);
                 current_free_size = 0;
@@ -129,6 +133,8 @@ impl Memory {
                 if next == NIL {
                     panic!("Could not free memory");
                 }
+
+                usedGC = true;
 
             }else{
                 current_free_size = self.block_size(p);
