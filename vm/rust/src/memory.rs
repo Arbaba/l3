@@ -153,10 +153,11 @@ impl Memory {
         //p += (size + 2) as usize; // + 2 accounts for the header of the new  block
         self[res - 2] = header_pack(tag, size);
         let free_size = current_free_size - (size + 2); // + 2 is the header size of the new block
+        let mut new_head: usize = 0;
         if free_size > BLOCK_SIZE_MIN as i32 {
-            let new_head = res + (size) as usize + 2;
+            new_head = res + (size) as usize + 2;
             println!("[MEM] new({}) old({})", new_head, self.head);
-            self.head = new_head;
+            //do even if prev is not nil
             let new_next = self.get_next_pointer(res);
             self.set_next_pointer(new_head, new_next);
             //check that the block is big enough
@@ -165,9 +166,15 @@ impl Memory {
         } else {
             let old = self.head;
             /*check if there is a next block*/
-            self.head = self.get_next_pointer(res);
+            new_head = self.get_next_pointer(res);
             /*if not: mark this block as size 0*/
             println!("[MEM] old:{} new:{}", old, self.head);
+        }
+        if prev == NIL {
+            println!("[MEM] update head from {} to {}", self.head, new_head);
+            self.head = new_head;
+        } else {
+            self.set_next_pointer(prev, new_head);
         }
         res
     }
