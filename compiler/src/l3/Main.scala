@@ -16,23 +16,23 @@ object Main {
       // CL3Interpreter
       CL3ToCPSTranslator
         // andThen treePrinter("---------- After translation to CPS")
-        andThen CPSOptimizerHigh
+        //andThen CPSOptimizerHigh
         // andThen treePrinter("---------- After high optimization")
         // andThen CPSInterpreterHigh
         andThen CPSValueRepresenter
         andThen CPSHoister
         // andThen treePrinter("---------- After value representation")
-        andThen CPSOptimizerLow
-        // andThen treePrinter("---------- After low optimization")
-         andThen CPSInterpreterLow
-        /*andThen CPSConstantNamer
+        //andThen CPSOptimizerLow
+         andThen treePrinter("---------- After low optimization")
+         //andThen CPSInterpreterLow
+        andThen CPSConstantNamer
         andThen CPSRegisterAllocator
         andThen CPSToASMTranslator
         // andThen seqPrinter("---------- After translation to assembly")
         andThen ASMLabelResolver
         // andThen ASMInterpreter
         andThen ASMFileWriter(Option(System.getProperty("l3.out-asm-file"))
-                                .getOrElse("out.l3a"))*/
+                                .getOrElse("out.l3a"))
     )
     val basePath = Paths.get(".").toAbsolutePath
     Either.cond(! args.isEmpty, args.toIndexedSeq, "no input file given")
