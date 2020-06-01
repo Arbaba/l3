@@ -1,4 +1,4 @@
-mod memory;
+mod memory_mark_n_sweep;
 mod engine;
 
 use std::{env, process};
@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufReader, BufRead};
 
 use crate::engine::Engine;
-use crate::memory::Memory;
+use crate::memory_mark_n_sweep::Memory;
 
 pub type L3Value = i32;
 pub const LOG2_VALUE_BYTES : usize = 2;

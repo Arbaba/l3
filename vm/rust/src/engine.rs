@@ -1,6 +1,6 @@
 use std::io;
 
-use crate::memory::Memory;
+use crate::memory_mark_n_sweep::Memory;
 use crate::{L3Value, LOG2_VALUE_BYTES, TAG_REGISTER_FRAME};
 
 const ADD     : L3Value =  0;
@@ -178,7 +178,7 @@ impl Engine {
         loop {
             let inst = self.mem[pc];
             let opcode = opcode(inst);
-
+            //println!("OP{}", opcode);
             match opcode {
                 ADD => {
                     self.arith(inst, |x, y| x.wrapping_add(y));
@@ -318,6 +318,7 @@ impl Engine {
                     pc += 1;
                 }
                 BTAG => {
+                    //println!("BTAG [{} {} ª{} @{}]", pc, inst, self.rb(inst), self.rb_ix(inst));
                     let block_ix = address_to_index(self.rb(inst));
                     let ra_ix = self.ra_ix(inst);
                     self.mem[ra_ix] = self.mem.block_tag(block_ix);
