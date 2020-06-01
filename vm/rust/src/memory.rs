@@ -50,6 +50,7 @@ impl Memory {
     }
 
     pub fn set_heap_start(&mut self, heap_start_index: usize) {
+        println!("HEAP SIZE: {}", self.content.len());
         debug_assert!(heap_start_index < self.content.len());
         //set head after header and set header to size of whole block.
         self.head = heap_start_index + 2;
@@ -105,11 +106,13 @@ impl Memory {
     pub fn sweep(&mut self, prev: usize, mut next: usize ) -> usize{
 
         let mut insert = prev;
+        let mut counter = 0;
         for i in self.heap_start..self.content.len() {
             if self.bitmap[i] { // this address is the start of a block and it is free
                 if next == NIL { // set next to first non-nil block
                     next = i;
                 }
+                
                 log(format!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i)));
                 let previous_size = if insert != NIL { self.block_size(insert) } else { 0 };
                 if i == insert + previous_size as usize + 2 {
@@ -120,6 +123,7 @@ impl Memory {
                     self[i - 2] = 0;
                 }
                 else {
+                    counter += 1;
                     /*Add new block*/
                     if insert != NIL {
                         debug_assert!(self.valid_pointer(insert));
@@ -132,9 +136,31 @@ impl Memory {
             }
             
         }
+        println!("Sweep: Recovered {} blocks", counter);
         self.set_next_pointer(insert, NIL); // setting last free block's next to nil
 
         return next
+    }
+
+
+    pub fn validate_free_list(&mut self){
+        let mut counter = 0;
+        let mut current : usize = self.head;
+        println!("Validate free list");
+
+       loop{
+            if current == NIL {
+               break;
+            }
+            debug_assert!(self.valid_pointer(current));
+            let next_pointer = self.get_next_pointer(current);
+            
+            //debug_assert!(next_pointer == NIL || self.valid_pointer(next_pointer));
+
+            current = self.get_next_pointer(current);
+            counter += 1;
+        }
+        println!("{} blocks in the free list ", counter);
     }
 
 
@@ -155,16 +181,21 @@ impl Memory {
             look for next big enough block address
         */
         let mut used_gc = false;
+        let mut next_idx = 0;
         while current_free_size < (size + 1) || p == NIL {
             prev = p;
             p = next;
-
+            next_idx += 1;
             if p == NIL {
                 if used_gc {
                     panic!("Tried to used GC twice in a row");
                 }
+                println!("Run Garbage collector");
+
                 self.mark(_gc_roots);
                 next = self.sweep(prev, NIL);
+                self.head = next;
+                self.validate_free_list();
                 current_free_size = 0;
                 log(format!("all blocks marked, looking for {} bytes, \"HEAD\" is {}", size, p));
                 if next == NIL {
@@ -190,7 +221,7 @@ impl Memory {
 
         let free_size = current_free_size - (size + 2); // + 2 is the header size of the new block
         let mut new_head: usize = 0;
-        if free_size > BLOCK_SIZE_MIN as i32 {
+        if  free_size > BLOCK_SIZE_MIN as i32 {
             new_head = p + (size as usize) + 2;
             log(format!("[MEM] new({}) old({})", new_head, self.head));
             //do even if prev is not nil
@@ -198,13 +229,20 @@ impl Memory {
             self.set_next_pointer(new_head, new_next);
             //check that the block is big enough
             log(format!("[MEM] free size |{}", free_size));
-            self[new_head-2] = header_pack(254, free_size);
+            self[new_head-2] = header_pack(254, free_size-2);
         } else {
             new_head = next;
         }
+
         if prev == NIL {
+            /*if new_head == NIL {
+                println!("HEAD: {} NEW HEAD: {}", self.head, new_head);
+                self.mark(_gc_roots);
+                new_head = self.sweep(prev, NIL);
+            }*/
             log(format!("[MEM] update head from {} to {}", self.head, new_head));
-            debug_assert!(self.valid_pointer(new_head));
+
+            debug_assert!(self.valid_pointer(new_head), "[MEM] update head from {} to {} BLOCK IDX: {}", self.head, new_head, next_idx);
             self.head = new_head;
         } else {
             self.set_next_pointer(prev, new_head);
