@@ -53,14 +53,10 @@ impl Memory {
       self.heap_start = heap_start_index + 2;
       let first_block_size = self.content.len() - heap_start_index;
       self[heap_start_index] = header_pack(FREE_BLOCK_TAG, first_block_size as L3Value);
-      self.append_block(self.heap_start);
+      self.free_list.push(self.heap_start);
   }
 
-  pub fn append_block(&mut self, address: usize) {
-    self.free_list.push(address);
-  }
-
-  pub fn is_valid_ptr(&mut self, ptr: usize) -> bool {
+  pub fn is_valid_ptr(&self, ptr: usize) -> bool {
     ptr >= self.heap_start && ptr < self.content.len()
   }
 
@@ -79,9 +75,10 @@ impl Memory {
     let prev_size = self.block_size(block);
     let next_size = self.block_size(annex);
     if (prev_size as usize) + block + 2 == annex {
+      debug_assert!(self.block_tag(block) == FREE_BLOCK_TAG);
       self.write_header(block, FREE_BLOCK_TAG, prev_size + next_size + 2);
-      println!("collapsed {}@{} w/ {}@{} -> {}", prev_size, block, next_size, annex, prev_size + next_size + 2);
     } else {
+      self.write_header(annex, FREE_BLOCK_TAG, next_size);
       self.free_list.push(annex);
     }
   }
@@ -92,6 +89,7 @@ impl Memory {
       if self.unreachable[ix] {
         //recovered free block
         self.allocated[ix] = false;
+        self.write_header(ix, FREE_BLOCK_TAG, self.block_size(ix));
         match self.free_list.last() {
           None => self.free_list.push(ix),
           Some(&addr) => self.try_coalesce(addr, ix),
@@ -108,7 +106,6 @@ impl Memory {
     for root in _gc_roots.iter() {
       self.walk(*root);
     }
-    println!("marked memory");
     self.sweep();
   }
 
@@ -125,7 +122,8 @@ impl Memory {
       }
     }
     if found {
-      println!("found block @{}/{} for {}", id, res, size);
+      debug_assert!(self.block_tag(res) == FREE_BLOCK_TAG, "block tag {} at {} (@{}) was not free" ,self.block_tag(res), id, res);
+      debug_assert!(!self.allocated[res]);
       self.free_list.remove(id);
       return res;
     }
@@ -134,12 +132,14 @@ impl Memory {
   }
 
   pub fn write_header(&mut self, p: usize, tag: L3Value, size: L3Value) {
+    let b = self.block_tag(p-2);
+    debug_assert!(!self.allocated[p], "Tried to rewrite header @{} to {}/{}", p, tag, size);
     self[p - 2] = header_pack(tag, size);
   }
 
   pub fn split(&mut self, p: usize, target_size: L3Value) {
     let available_size = self.block_size(p) - 2 - target_size;
-    if available_size > 0 {
+    if available_size > BLOCK_SIZE_MIN as L3Value {
       let new_block_address = p + (target_size as usize) + 2;
       self.write_header(new_block_address, FREE_BLOCK_TAG, available_size);
       self.free_list.push(new_block_address);
@@ -150,27 +150,19 @@ impl Memory {
                   tag: L3Value,
                   size: L3Value,
                   _gc_roots: [usize; 4]) -> usize {
-      println!("allocating");
+      let copy = _gc_roots.clone();
       let res = self.find_first(size, _gc_roots);
-      self.allocated[res] = true;
+      //println!("alloc=@{}", res);
       self.split(res, size);
       self.write_header(res, tag, size);
-      println!("{} free blocks remaining...", self.free_list.len());
-      /*debug_assert!(0 <= tag && tag <= 0xFF);
-      debug_assert!(0 <= size);
-      println!("[MEM] allocating {} {}", tag, size);
-
-      let header_ix = self.free_ix;
-      self.free_ix += 1 + (size as usize);
-      if self.free_ix >= self.content.len() {
-          panic!("no more memory");
-      };
-      self[header_ix] = header_pack(tag, size);*/
+      self.allocated[res] = true;
+      debug_assert!(copy == _gc_roots);
       res
   }
 
   pub fn block_tag(&self, ix: usize) -> L3Value {
-      header_unpack_tag(self.content[ix - 2])
+      //debug_assert!(self.is_valid_ptr(ix), "block-tag: invalid ptr {}", ix);
+        header_unpack_tag(self.content[ix - 2])
   }
 
   pub fn block_size(&self, ix: usize) -> L3Value {
