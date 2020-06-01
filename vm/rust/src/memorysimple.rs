@@ -38,9 +38,9 @@ fn address_to_index(addr: L3Value) -> usize {
 fn log(msg : std::string::String){
     //println!("{}",msg);
 }
+
 impl Memory {
     pub fn new(word_size: usize) -> Memory {
-        log(format!("[MEM] word-size:{}", word_size));
         Memory {
             heap_start: 0,
             content: vec![0; word_size],
@@ -48,6 +48,7 @@ impl Memory {
             bitmap: vec![false; word_size],
         }
     }
+
 
     pub fn set_heap_start(&mut self, heap_start_index: usize) {
         println!("HEAP SIZE: {}", self.content.len());
@@ -68,7 +69,6 @@ impl Memory {
     pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
         self.content[block - 1] = index_to_address(next_block);
     }
-
 
     pub fn scan_block(&mut self, address: usize) {
         let size = self.block_size(address) as usize;
@@ -95,57 +95,40 @@ impl Memory {
         }
       }
 
+      
     pub fn mark(&mut self, _gc_roots: [usize; 4] ) {
         for root in _gc_roots.iter() {
             self.traverse(root);
         }
     }
-    
-    //Returns the next free block given the previous (current) and next block in the free list
-    //Also coalesces adjacent free blocks
-    pub fn sweep(&mut self, prev: usize, mut next: usize ) -> usize{
+    pub fn sweep(&mut self) -> usize{
 
-        let mut insert = prev;
+        let mut insert = NIL;
+        let mut next = NIL;
         let mut counter = 0;
         for i in self.heap_start..self.content.len() {
-            if self.content[i] == (438603 ) as i32{
-                println!("Found this mf");
-            }
+      
             if self.bitmap[i] { // this address is the start of a block and it is free
                 if next == NIL { // set next to first non-nil block
                     next = i;
                 }
                 
-                log(format!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i)));
-                let previous_size = if insert != NIL { self.block_size(insert) } else { 0 };
-                if i == insert + previous_size as usize + 2 {
-                    /*Coalesce with previous block*/
-                    log(format!("[MEM] coalesced {} w/ {}", i, insert));
-                    self[insert-2] = header_pack(0, previous_size + self.block_size(i) + 2);
-                    self[i - 1] = 0;
-                    self[i - 2] = 0;
+                counter += 1;
+                /*Add new block*/
+                if insert != NIL && self.block_size(insert) >= BLOCK_SIZE_MIN as i32{
+                    debug_assert!(self.valid_pointer(insert));
+                    self.set_next_pointer(insert, i);
                 }
-                else {
-                    counter += 1;
-                    /*Add new block*/
-                    if insert != NIL {
-                        debug_assert!(self.valid_pointer(insert));
-                        self.set_next_pointer(insert, i);
-                    }
-                    log(format!("[MEM] link block @{} -> @{}", insert, i));
-                    insert = i;
-                }
+                insert = i;
                 self.bitmap[i] = false; // unnecessary really
             }
             
         }
         println!("Sweep: Recovered {} blocks", counter);
+        debug_assert!(insert != NIL);
         self.set_next_pointer(insert, NIL); // setting last free block's next to nil
-
         return next
     }
-
-
     pub fn validate_free_list(&mut self){
         let mut counter = 0;
         let mut current : usize = self.head;
@@ -165,102 +148,49 @@ impl Memory {
         }
         println!("{} blocks in the free list ", counter);
     }
-
-
+    pub fn gc(&mut self, _gc_roots: [usize; 4] )->usize{
+        self.mark( _gc_roots);
+        return self.sweep();
+    }
     pub fn allocate(&mut self,
                     tag: L3Value,
                     size: L3Value,
-                    _gc_roots: [usize; 4]) -> usize { 
-        log(format!("[MEM] HEAD@{}", self.head));
-        let mut current_free_size = if self.head != NIL { self.block_size(self.head) } else { 0 };
-        let mut p = self.head;
-        let mut prev = NIL;
-        let mut next = NIL;
-        //bootstrap next
-        if p != NIL {
-            next = self.get_next_pointer(p);
-        }
-        /*
-            look for next big enough block address
-        */
+                    _gc_roots: [usize; 4]) -> usize {
+        debug_assert!(0 <= tag && tag <= 0xFF);
+        debug_assert!(0 <= size);
+        println!("[MEM] allocating {} {}", tag, size);
+
+                        
+        let mut current_node = self.head;
+        let mut previous_node =  NIL;
+        let mut current_node_size = if self.head != NIL {self.block_size(self.head)} else {0};
         let mut used_gc = false;
-        let mut next_idx = 0;
-        while current_free_size < (size + 1) || p == NIL {
-            prev = p;
-            p = next;
-            next_idx += 1;
-            if p == NIL {
+
+
+        while current_node_size < size || current_node == NIL {
+            previous_node = current_node;
+            if current_node == NIL{
+                self.head = self.gc(_gc_roots);
+                current_node = self.head;
                 if used_gc {
                     panic!("Tried to used GC twice in a row");
                 }
-                println!("Run Garbage collector");
-
-                self.mark(_gc_roots);
-                //next = self.sweep(prev, NIL);
-                self.head = next;
-                self.validate_free_list();
-                current_free_size = 0;
-                log(format!("all blocks marked, looking for {} bytes, \"HEAD\" is {}", size, p));
-                if next == NIL {
+                used_gc = true;
+                if current_node == NIL{
                     panic!("Could not free memory");
                 }
-
-                used_gc = true;
-
-            }else{
-                current_free_size = self.block_size(p);
-                next = self.get_next_pointer(p);
+            }else {
+                current_node_size = self.block_size(current_node);
+                current_node = self.get_next_pointer(current_node);
             }
-           
-            log(format!("[MEM] sizeof {}={}", p, current_free_size));
+        } 
+
+        self[current_node - 2] = header_pack(tag, size);
+        self.bitmap[current_node] = true;
+        if current_node == self.head {
+            self.head = self.get_next_pointer(current_node)
         }
-        log(format!("[MEM] found block {}@{} for {}b, next is {}", self.block_size(p), p, size, self.get_next_pointer(p)));
-        /*
-            break block and mark it
-        */
-        //mark new block
-        self.bitmap[p] = true;
-        self[p - 2] = header_pack(tag, size);
-        let free_size = current_free_size - (size + 2); // + 2 is the header size of the new block
-        let mut new_head: usize = 0;
-        if  free_size > BLOCK_SIZE_MIN as i32 {
-            new_head = p + (size as usize) + 2;
-            log(format!("[MEM] new({}) old({})", new_head, self.head));
-            //do even if prev is not nil
-            let new_next = self.get_next_pointer(p);
-            self.set_next_pointer(new_head, new_next);
-            //check that the block is big enough
-            log(format!("[MEM] free size |{}", free_size));
-            self[new_head-2] = header_pack(254, free_size);
-        } else {
-            new_head = next;
-        }
-
-        if prev == NIL {
-            /*if new_head == NIL {
-                println!("HEAD: {} NEW HEAD: {}", self.head, new_head);
-                self.mark(_gc_roots);
-                new_head = self.sweep(prev, NIL);
-            }*/
-            if new_head == NIL {
-
-                self.validate_free_list();
-            }else{
-
-                log(format!("[MEM] update head from {} to {}", self.head, new_head));
-               
-                //debug_assert!(self.valid_pointer(new_head), "[MEM] update head from {} to {} BLOCK IDX: {} FREE SIZE {}", self.head, new_head, next_idx, free_size);
-            }
-            self.head = new_head;
-
-        } else {
-            self.set_next_pointer(prev, new_head);
-        }
-        debug_assert!(self.block_tag(p) == tag);
-        debug_assert!(self.block_size(p) == size);
-        debug_assert!(self.valid_pointer(p));
-        log(format!("allocate {} {} {} {}", tag, size, p ,self.head));
-        p
+        return current_node;
     }
 
     pub fn valid_pointer(&mut self, address: usize) -> bool {
@@ -275,6 +205,7 @@ impl Memory {
     pub fn block_size(&self, ix: usize) -> L3Value {
         header_unpack_size(self.content[ix - 2])
     }
+
 }
 
 use std::ops::{ Index, IndexMut };
