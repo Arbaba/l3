@@ -8,9 +8,9 @@ const FREE_BLOCK_TAG: L3Value = 254;
 pub struct Memory {
     heap_start: usize,
     content: Vec<L3Value>,
-    free_list: Vec<usize>,
     allocated: Vec<bool>,
     unreachable: Vec<bool>,
+    free_list_head: usize,
 }
 fn header_pack(tag: L3Value, size: L3Value) -> L3Value {
   debug_assert!(0 <= size && size <= 0xFF_FFFF);
@@ -42,9 +42,9 @@ impl Memory {
       Memory {
           content: vec![0; word_size],
           heap_start: 0,
-          free_list: Vec::new(),
           allocated: vec![false;  word_size],
           unreachable: vec![false; word_size],
+          free_list_head: 0,
       }
   }
 
@@ -53,12 +53,21 @@ impl Memory {
       self.heap_start = heap_start_index + 2;
       let first_block_size = self.content.len() - heap_start_index;
       self[heap_start_index] = header_pack(FREE_BLOCK_TAG, first_block_size as L3Value);
-      self.free_list.push(self.heap_start);
+      self.set_next_pointer(heap_start_index + 2, NIL);
+      self.free_list_head = self.heap_start;
   }
 
   pub fn is_valid_ptr(&self, ptr: usize) -> bool {
     ptr >= self.heap_start && ptr < self.content.len()
   }
+  pub fn get_next_pointer(&mut self, block: usize) -> usize { 
+    address_to_index(self.content[block - 1])
+  }
+
+  pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
+      self.content[block - 1] = index_to_address(next_block)
+  }
+
 
   pub fn walk(&mut self, addr: L3Value) {
     if addr & 0b11 == 0 {
@@ -77,27 +86,40 @@ impl Memory {
     let prev_size = self.block_size(block);
     let next_size = self.block_size(annex);
     if (prev_size as usize) + block + 2 == annex {
+      //coalescing
       debug_assert!(self.block_tag(block) == FREE_BLOCK_TAG);
       self.write_header(block, FREE_BLOCK_TAG, prev_size + next_size + 2);
     } else {
+      //appending
+      self.set_next_pointer(block, annex);
       self.write_header(annex, FREE_BLOCK_TAG, next_size);
-      self.free_list.push(annex);
+      //self.free_list.push(annex);
     }
   }
 
   pub fn sweep(&mut self) {
-    self.free_list.truncate(0);
+    let mut prev = NIL;
+    let mut next = NIL;
+    //self.free_list.truncate(0);
     for ix in self.heap_start..self.content.len() {
       if self.unreachable[ix] {
         //recovered free block
         self.allocated[ix] = false;
         self.write_header(ix, FREE_BLOCK_TAG, self.block_size(ix));
-        match self.free_list.last() {
-          None => self.free_list.push(ix),
-          Some(&addr) => self.try_coalesce(addr, ix),
+        if prev == NIL {
+          self.free_list_head = ix;
+        } else {
+          let prev_size = self.block_size(prev);
+          if ix == prev + (prev_size as usize) + 2 {
+            self.write_header(prev, FREE_BLOCK_TAG, prev_size + self.block_size(ix) + 2);
+          } else {
+            self.set_next_pointer(prev, ix);
+          }
         }
+        prev = ix;
       }
     }
+    self.set_next_pointer(prev, NIL);
   }
 
   pub fn mark_n_sweep(&mut self, _gc_roots: [usize; 4]) {
@@ -111,7 +133,7 @@ impl Memory {
     self.sweep();
   }
 
-  pub fn find_first(&mut self, size: L3Value, _gc_roots: [usize; 4]) -> usize {
+  /*pub fn find_first(&mut self, size: L3Value, _gc_roots: [usize; 4]) -> usize {
     let mut found = false;
     let mut id = 0;
     let mut res = 0;
@@ -131,7 +153,7 @@ impl Memory {
     }
     self.mark_n_sweep(_gc_roots);
     self.find_first(size, _gc_roots)
-  }
+  }*/
 
   pub fn write_header(&mut self, p: usize, tag: L3Value, size: L3Value) {
     let b = self.block_tag(p-2);
@@ -139,13 +161,55 @@ impl Memory {
     self[p - 2] = header_pack(tag, size);
   }
 
-  pub fn split(&mut self, p: usize, target_size: L3Value) {
+  pub fn split(&mut self, p: usize, target_size: L3Value, prev: usize, next: usize) {
     let available_size = self.block_size(p) - 2 - target_size;
+    let mut new_head: usize = 0;
     if available_size > BLOCK_SIZE_MIN as L3Value {
       let new_block_address = p + (target_size as usize) + 2;
       self.write_header(new_block_address, FREE_BLOCK_TAG, available_size);
-      self.free_list.push(new_block_address);
+      let new_next = self.get_next_pointer(p);
+      self.set_next_pointer(new_block_address, new_next);
+      new_head = new_block_address;
+    } else {
+      new_head = next;
     }
+    if prev == NIL {
+        //println!("[MEM] update head from {} to {}", self.head, new_head);
+        debug_assert!(self.is_valid_ptr(new_head));
+        self.free_list_head = new_head;
+    } else {
+        self.set_next_pointer(prev, new_head);
+    }
+  }
+
+  pub fn find_first_(&mut self, size: L3Value, _gc_roots: [usize; 4]) -> (usize, usize, usize) {
+    let mut current_free_size = if self.free_list_head != NIL { self.block_size(self.free_list_head) } else { 0 };
+    let mut p = self.free_list_head;
+    let mut prev = NIL;
+    let mut next = NIL;
+    //bootstrap next
+    if p != NIL {
+        next = self.get_next_pointer(p);
+    }
+    /*
+        look for next big enough block address
+    */
+    while current_free_size < (size + 1) || p == NIL {
+        prev = p;
+        p = next;
+
+        if p == NIL {
+          self.mark_n_sweep(_gc_roots);
+          //those are reset by mark_n_sweep
+          next = self.free_list_head;
+        }else{
+            current_free_size = self.block_size(p);
+            next = self.get_next_pointer(p);
+        }
+        
+        //println!("[MEM] sizeof {}={}", p, current_free_size);
+    }
+    (prev, p, next)
   }
 
   pub fn allocate(&mut self,
@@ -153,9 +217,9 @@ impl Memory {
                   size: L3Value,
                   _gc_roots: [usize; 4]) -> usize {
       let copy = _gc_roots.clone();
-      let res = self.find_first(size, _gc_roots);
+      let (prev, res, next) = self.find_first_(size, _gc_roots);
       //println!("alloc=@{}", res);
-      self.split(res, size);
+      self.split(res, size, prev, next);
       self.write_header(res, tag, size);
       self.allocated[res] = true;
       debug_assert!(copy == _gc_roots);

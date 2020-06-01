@@ -47,6 +47,14 @@ impl Memory {
         }
     }
 
+    pub fn get_next_pointer(&mut self, block: usize) -> usize { 
+        return address_to_index(self.content[block - 1]);
+    }
+
+    pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
+        self.content[block - 1] = index_to_address(next_block);
+    }
+
     pub fn set_heap_start(&mut self, heap_start_index: usize) {
         debug_assert!(heap_start_index < self.content.len());
         //set head after header and set header to size of whole block.
@@ -55,16 +63,11 @@ impl Memory {
         let heap_size = (self.content.len()-1-heap_start_index) as i32;
         self[heap_start_index] = header_pack(0, heap_size);
         self[heap_start_index+1] = NIL_TARGET;
+        
         //set minimum size of a block to store header and 
     }
 
-    pub fn get_next_pointer(&mut self, block: usize) -> usize { 
-        return address_to_index(self.content[block - 1]);
-    }
 
-    pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
-        self.content[block - 1] = index_to_address(next_block);
-    }
 
 
     pub fn scan_block(&mut self, address: usize) {
