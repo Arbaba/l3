@@ -60,13 +60,15 @@ impl Memory {
     ptr >= self.heap_start && ptr < self.content.len()
   }
 
-  pub fn walk(&mut self, root: usize) {
-    if self.is_valid_ptr(root) && self[root] & 0b11 == 0 && self.unreachable[root] {
-      self.unreachable[root] = false;
-      let block_size = self.block_size(root);
-      for i in 0..(block_size as usize) {
-        let at = address_to_index(self[i + root]);
-        self.walk(at);
+  pub fn walk(&mut self, addr: L3Value) {
+    if addr & 0b11 == 0 {
+      let root = address_to_index(addr);
+      if self.is_valid_ptr(root) && self.unreachable[root] {
+        self.unreachable[root] = false;
+        let block_size = self.block_size(root);
+        for i in 0..(block_size as usize) {
+          self.walk(self[i + root]);
+        }
       }
     }
   }
@@ -104,7 +106,7 @@ impl Memory {
       self.unreachable[i] = *val;
     }
     for root in _gc_roots.iter() {
-      self.walk(*root);
+      self.walk(index_to_address(*root));
     }
     self.sweep();
   }
@@ -162,7 +164,7 @@ impl Memory {
 
   pub fn block_tag(&self, ix: usize) -> L3Value {
       //debug_assert!(self.is_valid_ptr(ix), "block-tag: invalid ptr {}", ix);
-        header_unpack_tag(self.content[ix - 2])
+      header_unpack_tag(self.content[ix - 2])
   }
 
   pub fn block_size(&self, ix: usize) -> L3Value {
