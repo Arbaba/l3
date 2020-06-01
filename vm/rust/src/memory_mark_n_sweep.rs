@@ -108,18 +108,19 @@ impl Memory {
         self.write_header(ix, FREE_BLOCK_TAG, self.block_size(ix));
         if prev == NIL {
           self.free_list_head = ix;
+          prev = ix;
         } else {
           let prev_size = self.block_size(prev);
           if ix == prev + (prev_size as usize) + 2 {
             self.write_header(prev, FREE_BLOCK_TAG, prev_size + self.block_size(ix) + 2);
           } else {
             self.set_next_pointer(prev, ix);
+            prev = ix;
           }
         }
-        prev = ix;
       }
     }
-    self.set_next_pointer(prev, NIL);
+    //self.set_next_pointer(prev, NIL);
   }
 
   pub fn mark_n_sweep(&mut self, _gc_roots: [usize; 4]) {
@@ -194,7 +195,7 @@ impl Memory {
     /*
         look for next big enough block address
     */
-    while current_free_size < (size + 1) || p == NIL {
+    while current_free_size < (size + 2) || p == NIL {
         prev = p;
         p = next;
 
