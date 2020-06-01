@@ -26,9 +26,19 @@ fn header_unpack_size(header: L3Value) -> L3Value {
     header >> 8
 }
 
+fn index_to_address(index: usize) -> L3Value {
+    (index << 2) as L3Value
+}
+
+fn address_to_index(addr: L3Value) -> usize {
+    debug_assert!(addr & ((1 << 2) - 1) == 0,
+                  "invalid address: {} (16#{:x})", addr, addr);
+    (addr >> 2) as usize
+}
+
 impl Memory {
     pub fn new(word_size: usize) -> Memory {
-        //println!("[MEM] word-size:{}", word_size);
+        println!("[MEM] word-size:{}", word_size);
         Memory {
             heap_start: 0,
             content: vec![0; word_size],
@@ -49,13 +59,38 @@ impl Memory {
     }
 
     pub fn get_next_pointer(&mut self, block: usize) -> usize { 
-        return (self.content[block - 1] >> 2) as usize;
+        return address_to_index(self.content[block - 1]);
     }
 
     pub fn set_next_pointer(&mut self, block: usize, next_block: usize) {
-        //println!("[MEM] translating {} to {} @{}", next_block, (next_block << 2), block);
-        self.content[block - 1] = (next_block << 2) as i32;
+        self.content[block - 1] = index_to_address(next_block);
     }
+
+
+    pub fn scan_block(&mut self, address: usize) {
+        let size = self.block_size(address) as usize;
+        for i in 0..size {
+            if self[address+i] & 0b11 == 0 {
+                let real_address = address_to_index(self[address+i]);
+                if real_address < self.content.len() && real_address >= self.heap_start {
+                    //println!("chasing pointer @{} -> block [{}]", real_address, self.block_size(real_address));
+                    self.traverse(&real_address);
+                }
+            }
+        }
+    }
+
+    pub fn traverse(&mut self, root: &usize) {
+        //check if address is a pointer
+        if self[*root] & 0b11 == 0 && self.bitmap[*root] {
+          self.bitmap[*root] = false;
+          let real_address: usize = address_to_index(self[*root]);
+          if real_address < self.content.len() && real_address >= self.heap_start {
+              println!("chasing pointer @{} -> block [{}]", real_address, self.block_size(real_address));
+              self.scan_block(real_address);
+          }
+        }
+      }
 
     pub fn mark(&mut self, _gc_roots: [usize; 4] ) {
         for root in _gc_roots.iter() {
@@ -73,11 +108,11 @@ impl Memory {
                 if next == NIL { // set next to first non-nil block
                     next = i;
                 }
-                //println!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i));
-                let previous_size = if(insert != NIL) { self.block_size(insert) } else { 0 };
+                println!("[MEM] recovered free  block @{} [{}]", i, self.block_size(i));
+                let previous_size = if insert != NIL { self.block_size(insert) } else { 0 };
                 if i == insert + previous_size as usize + 2 {
                     /*Coalesce with previous block*/
-                    //println!("[MEM] coalesced {} w/ {}", i, insert);
+                    println!("[MEM] coalesced {} w/ {}", i, insert);
                     self[insert-2] = header_pack(0, previous_size + self.block_size(i) + 2);
                     self[i - 1] = 0;
                     self[i - 2] = 0;
@@ -85,9 +120,10 @@ impl Memory {
                 else {
                     /*Add new block*/
                     if insert != NIL {
+                        debug_assert!(self.valid_pointer(insert));
                         self.set_next_pointer(insert, i);
                     }
-                    //println!("[MEM] link block @{} -> @{}", insert, i);
+                    println!("[MEM] link block @{} -> @{}", insert, i);
                     insert = i;
                 }
                 self.bitmap[i] = false; // unnecessary really
@@ -96,16 +132,16 @@ impl Memory {
         }
         self.set_next_pointer(insert, NIL); // setting last free block's next to nil
 
-        return next;
+        return next
     }
+
+
     pub fn allocate(&mut self,
                     tag: L3Value,
                     size: L3Value,
                     _gc_roots: [usize; 4]) -> usize { 
-
-        //println!("[MEM] HEAD@{}", self.head);
-        let mut current_free_size = if(self.head != NIL) { self.block_size(self.head) } else { 0 };
-        let target_size = size + 1;
+        println!("[MEM] HEAD@{}", self.head);
+        let mut current_free_size = if self.head != NIL { self.block_size(self.head) } else { 0 };
         let mut p = self.head;
         let mut prev = NIL;
         let mut next = NIL;
@@ -113,17 +149,16 @@ impl Memory {
         if p != NIL {
             next = self.get_next_pointer(p);
         }
-        
         /*
             look for next big enough block address
         */
-        let mut usedGC = false;
+        let mut used_gc = false;
         while current_free_size < (size + 1) || p == NIL {
             prev = p;
             p = next;
 
             if p == NIL {
-                if usedGC{
+                if used_gc {
                     panic!("Tried to used GC twice in a row");
                 }
                 self.mark(_gc_roots);
@@ -134,7 +169,7 @@ impl Memory {
                     panic!("Could not free memory");
                 }
 
-                usedGC = true;
+                used_gc = true;
 
             }else{
                 current_free_size = self.block_size(p);
@@ -143,69 +178,48 @@ impl Memory {
            
             println!("[MEM] sizeof {}={}", p, current_free_size);
         }
-        println!("[MEM] found block {}@{} for {}b, next is {}", self.block_size(p), p, target_size, self.get_next_pointer(p));
+        println!("[MEM] found block {}@{} for {}b, next is {}", self.block_size(p), p, size, self.get_next_pointer(p));
         /*
             break block and mark it
         */
         //mark new block
-        let res = p;
-        self.bitmap[res] = true;
-        //p += (size + 2) as usize; // + 2 accounts for the header of the new  block
-        self[res - 2] = header_pack(tag, size);
+        self.bitmap[p] = true;
+        self[p - 2] = header_pack(tag, size);
+
         let free_size = current_free_size - (size + 2); // + 2 is the header size of the new block
         let mut new_head: usize = 0;
         if free_size > BLOCK_SIZE_MIN as i32 {
-            new_head = res + (size) as usize + 2;
+            new_head = p + (size as usize) + 2;
             println!("[MEM] new({}) old({})", new_head, self.head);
             //do even if prev is not nil
-            let new_next = self.get_next_pointer(res);
+            let new_next = self.get_next_pointer(p);
             self.set_next_pointer(new_head, new_next);
             //check that the block is big enough
             println!("[MEM] free size |{}", free_size);
-            self[new_head-2] = header_pack(0, free_size);
+            self[new_head-2] = header_pack(254, free_size);
         } else {
-            let old = self.head;
-            /*check if there is a next block*/
-            new_head = self.get_next_pointer(res);
-            /*if not: mark this block as size 0*/
-            println!("[MEM] old:{} new:{}", old, self.head);
+            new_head = next;
         }
         if prev == NIL {
             println!("[MEM] update head from {} to {}", self.head, new_head);
+            debug_assert!(self.valid_pointer(new_head));
             self.head = new_head;
         } else {
             self.set_next_pointer(prev, new_head);
         }
-        res
+        debug_assert!(self.block_tag(p) == tag);
+        debug_assert!(self.block_size(p) == size);
+        debug_assert!(self.valid_pointer(p));
+        println!("allocate {} {} {} {}", tag, size, p ,self.head);
+        p
     }
 
-    pub fn traverse(&mut self, root: &usize) {
-      //check if address is a pointer
-      if self[*root] & 0b11 == 0 && self.bitmap[*root] {
-        self.bitmap[*root] = false;
-        let real_address: usize = (self[*root] >> 2) as usize;
-        if real_address < self.content.len() && real_address > self.heap_start {
-            println!("chasing pointer @{} -> block [{}]", real_address, self.block_size(real_address));
-            self.scan_block(real_address);
-        }
-      }
+    pub fn valid_pointer(&mut self, address: usize) -> bool {
+        return address >= self.heap_start && address < self.content.len()
     }
-    pub fn scan_block(&mut self, address: usize) {
-        let size = self.block_size(address) as usize;
-        for i in 0..size {
-            if self[address+i] & 0b11 == 0 {
-                let real_address: usize = (self[address+i] >> 2) as usize;
-                if real_address < self.content.len() && real_address > self.heap_start {
-                    println!("chasing pointer @{} -> block [{}]", real_address, self.block_size(real_address));
-                    self.traverse(&real_address);
-                }
-            }
-        }
-    }
-
-
 
     pub fn block_tag(&self, ix: usize) -> L3Value {
+        println!("tagof {}", ix);
         header_unpack_tag(self.content[ix - 2])
     }
 
